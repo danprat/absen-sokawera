@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <!-- Modern gradient background -->
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2563eb;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- Soft shadow -->
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
+      <feOffset dx="0" dy="2" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.3"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background with modern rounded corners -->
+  <rect width="64" height="64" rx="16" fill="url(#bg)"/>
+  
+  <!-- Face recognition icon with modern style -->
+  <g transform="translate(32, 28)">
+    <!-- Face circle -->
+    <circle cx="0" cy="0" r="10" fill="white" opacity="0.95"/>
+    
+    <!-- Eyes -->
+    <circle cx="-3" cy="-2" r="1.5" fill="#2563eb"/>
+    <circle cx="3" cy="-2" r="1.5" fill="#2563eb"/>
+    
+    <!-- Smile -->
+    <path d="M -4 1 Q 0 4 4 1" stroke="#2563eb" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+    
+    <!-- Corner brackets for scan effect -->
+    <g stroke="white" stroke-width="2" fill="none" opacity="0.9">
+      <!-- Top-left -->
+      <path d="M -12 -8 L -12 -12 L -8 -12"/>
+      <!-- Top-right -->
+      <path d="M 8 -12 L 12 -12 L 12 -8"/>
+      <!-- Bottom-left -->
+      <path d="M -12 8 L -12 12 L -8 12"/>
+      <!-- Bottom-right -->
+      <path d="M 8 12 L 12 12 L 12 8"/>
+    </g>
+  </g>
+  
+  <!-- Check icon badge - modern floating style -->
+  <g filter="url(#shadow)">
+    <circle cx="46" cy="46" r="10" fill="#10b981"/>
+    <path d="M 41 46 L 44 49 L 51 42" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+</svg>

@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
+  <defs>
+    <!-- Modern gradient background -->
+    <linearGradient id="bgApple" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2563eb;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- Soft shadow -->
+    <filter id="shadowApple" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="4"/>
+      <feOffset dx="0" dy="4" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.3"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background with modern rounded corners -->
+  <rect width="180" height="180" rx="39" fill="url(#bgApple)"/>
+  
+  <!-- Face recognition icon with modern style -->
+  <g transform="translate(90, 78)">
+    <!-- Face circle -->
+    <circle cx="0" cy="0" r="28" fill="white" opacity="0.95"/>
+    
+    <!-- Eyes -->
+    <circle cx="-8.5" cy="-5.5" r="4" fill="#2563eb"/>
+    <circle cx="8.5" cy="-5.5" r="4" fill="#2563eb"/>
+    
+    <!-- Smile -->
+    <path d="M -11 3 Q 0 11 11 3" stroke="#2563eb" stroke-width="4" fill="none" stroke-linecap="round"/>
+    
+    <!-- Corner brackets for scan effect -->
+    <g stroke="white" stroke-width="5.5" fill="none" opacity="0.9">
+      <!-- Top-left -->
+      <path d="M -34 -22 L -34 -34 L -22 -34"/>
+      <!-- Top-right -->
+      <path d="M 22 -34 L 34 -34 L 34 -22"/>
+      <!-- Bottom-left -->
+      <path d="M -34 22 L -34 34 L -22 34"/>
+      <!-- Bottom-right -->
+      <path d="M 22 34 L 34 34 L 34 22"/>
+    </g>
+  </g>
+  
+  <!-- Check icon badge - modern floating style -->
+  <g filter="url(#shadowApple)">
+    <circle cx="130" cy="130" r="28" fill="#10b981"/>
+    <path d="M 115 130 L 124 139 L 145 118" stroke="white" stroke-width="8.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+</svg>
