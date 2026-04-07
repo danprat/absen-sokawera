@@ -2,12 +2,16 @@ from typing import Optional, Tuple
 from datetime import datetime, date, time, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
+from app.config import get_settings
 from app.models.employee import Employee
 from app.models.attendance import AttendanceLog, AttendanceStatus
 from app.models.holiday import Holiday
 from app.models.work_settings import WorkSettings
 from app.models.daily_schedule import DailyWorkSchedule
 from app.utils.cache import cache, SETTINGS_CACHE_KEY, DAILY_SCHEDULE_CACHE_KEY
+
+settings = get_settings()
+HOLIDAY_CACHE_KEY = "holiday"
 
 
 class AttendanceService:
@@ -17,30 +21,35 @@ class AttendanceService:
         if cached:
             return cached
         
-        settings = db.query(WorkSettings).first()
-        if not settings:
-            settings = WorkSettings()
-            db.add(settings)
+        work_settings = db.query(WorkSettings).first()
+        if not work_settings:
+            work_settings = WorkSettings()
+            db.add(work_settings)
             db.commit()
-            db.refresh(settings)
-        
-        cache.set(SETTINGS_CACHE_KEY, settings, ttl_seconds=60)
-        return settings
+            db.refresh(work_settings)
+
+        cache.set(SETTINGS_CACHE_KEY, work_settings, ttl_seconds=settings.WORK_SETTINGS_CACHE_TTL_SECONDS)
+        return work_settings
     
     def is_holiday(self, db: Session, check_date: date) -> bool:
         """Check if the given date is a holiday (excluding holidays marked as is_excluded)."""
+        holiday_cache_key = f"{HOLIDAY_CACHE_KEY}:{check_date.isoformat()}"
+        cached = cache.get(holiday_cache_key)
+        if cached is not None:
+            return cached
+
         holiday = db.query(Holiday).filter(
             Holiday.date == check_date,
             Holiday.is_excluded == False
         ).first()
-        return holiday is not None
+        result = holiday is not None
+        cache.set(holiday_cache_key, result, ttl_seconds=settings.HOLIDAY_CACHE_TTL_SECONDS)
+        return result
 
     def is_workday(self, db: Session, check_date: date) -> bool:
         """Check if the given date is a workday based on DailyWorkSchedule."""
         day_of_week = check_date.weekday()  # 0=Monday, 6=Sunday
-        schedule = db.query(DailyWorkSchedule).filter(
-            DailyWorkSchedule.day_of_week == day_of_week
-        ).first()
+        schedule = self.get_daily_schedule(db, check_date)
 
         # If no schedule exists, default to weekday logic (Mon-Fri = workday)
         if not schedule:
@@ -63,7 +72,7 @@ class AttendanceService:
         ).first()
         
         # Cache result (use "NONE" string to cache None values)
-        cache.set(cache_key, schedule if schedule else "NONE", ttl_seconds=300)
+        cache.set(cache_key, schedule if schedule else "NONE", ttl_seconds=settings.DAILY_SCHEDULE_CACHE_TTL_SECONDS)
         return schedule
     
     def get_effective_schedule(self, db: Session, check_date: date) -> dict:

@@ -8,15 +8,17 @@ from slowapi.errors import RateLimitExceeded
 import os
 
 from app.config import get_settings
-from app.database import engine, Base
+from app.database import engine, Base, SessionLocal
 from app.routers import (
     auth, employees, face, attendance, admin_attendance,
     reports, settings, audit, public,
     guestbook, survey, admin_guestbook, admin_survey,
     admin_management
 )
+from app.services.face_recognition import face_recognition_service
 
 settings_config = get_settings()
+
 
 # Rate limiter setup
 limiter = Limiter(key_func=get_remote_address)
@@ -68,7 +70,15 @@ app.include_router(admin_management.router, prefix=API_PREFIX)
 
 @app.on_event("startup")
 def on_startup():
-    Base.metadata.create_all(bind=engine)
+    if settings_config.AUTO_CREATE_SCHEMA:
+        Base.metadata.create_all(bind=engine)
+
+    if settings_config.PRELOAD_FACE_EMBEDDINGS and face_recognition_service.enabled:
+        db = SessionLocal()
+        try:
+            face_recognition_service.refresh_embedding_cache(db)
+        finally:
+            db.close()
 
 
 @app.get("/health")

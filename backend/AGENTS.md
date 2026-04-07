@@ -17,6 +17,9 @@ alembic upgrade head
 # Run development server
 uvicorn app.main:app --reload --port 8000
 
+# Small-scale production server (single process for ~9 users)
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+
 # Create migration after model changes
 alembic revision --autogenerate -m "description"
 alembic upgrade head
@@ -28,6 +31,8 @@ Jika virtualenv lokal tidak menyediakan executable `python`/`python3` yang bisa 
 cd backend
 python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
+
+Untuk deployment kecil ini, gunakan satu proses Uvicorn saja. Tidak perlu `--workers`; satu proses cukup untuk sekitar 9 pengguna dengan lonjakan request singkat saat jam masuk/pulang, sekaligus menghindari duplikasi cache in-memory face recognition.
 
 Setelah restart backend, validasi schema live dengan:
 
@@ -148,7 +153,7 @@ alembic upgrade head --sql
 # From backend/ directory with venv activated
 python -m pytest  # If tests exist
 alembic check  # Verify migrations
-uvicorn app.main:app --reload  # Ensure server starts without errors
+uvicorn app.main:app --host 127.0.0.1 --port 8000  # Production-like single-process startup check
 ```
 
 ## Environment Variables
