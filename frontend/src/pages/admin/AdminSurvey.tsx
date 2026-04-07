@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Star, Download, Loader2, Calendar, BarChart3, MessageSquare, 
-  Settings2, Plus, Trash2, GripVertical, Edit, Building2,
+import {
+  Star, Download, Loader2, Calendar, BarChart3, MessageSquare,
+  Plus, Trash2, GripVertical, Edit, Building2,
   TrendingUp, Users, CheckCircle2, AlertCircle, ArrowRight
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -41,7 +41,6 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Progress } from '@/components/ui/progress';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Skeleton } from '@/components/ui/skeleton';
 import api from '@/lib/api';
@@ -54,8 +53,6 @@ import {
   BackendSurveyResponse,
   SatisfactionRating,
   SATISFACTION_LABELS,
-  SATISFACTION_ICONS,
-  SATISFACTION_COLORS,
   SATISFACTION_COLOR_HEX,
   BackendQuestionStatsResponse,
 } from '@/types/survey';
@@ -230,25 +227,34 @@ export function AdminSurvey() {
   // Laporan state
   const [stats, setStats] = useState<BackendSurveyStats | null>(null);
   const [isLoadingStats, setIsLoadingStats] = useState(true);
+  const [statsErrorMessage, setStatsErrorMessage] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportFormat, setExportFormat] = useState<'csv' | 'pdf' | 'xlsx'>('pdf');
   
   // Question stats state
   const [questionStats, setQuestionStats] = useState<BackendQuestionStatsResponse | null>(null);
   const [isLoadingQuestionStats, setIsLoadingQuestionStats] = useState(true);
+  const [questionStatsErrorMessage, setQuestionStatsErrorMessage] = useState<string | null>(null);
   const [expandedQuestions, setExpandedQuestions] = useState<Set<number>>(new Set());
-  
+
   // Responses with feedback
   const [responses, setResponses] = useState<BackendSurveyResponse[]>([]);
   const [isLoadingResponses, setIsLoadingResponses] = useState(true);
+  const [responsesErrorMessage, setResponsesErrorMessage] = useState<string | null>(null);
   const [feedbackPage, setFeedbackPage] = useState(1);
   const [totalFeedback, setTotalFeedback] = useState(0);
   const feedbackPerPage = 5;
   
   // Filter state
+  const formatLocalDate = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
   const today = new Date();
-  const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-  const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+  const firstDayOfMonth = formatLocalDate(new Date(today.getFullYear(), today.getMonth(), 1));
+  const lastDayOfMonth = formatLocalDate(new Date(today.getFullYear(), today.getMonth() + 1, 0));
   const [startDate, setStartDate] = useState(firstDayOfMonth);
   const [endDate, setEndDate] = useState(lastDayOfMonth);
   const [filterServiceType, setFilterServiceType] = useState<string>('all');
@@ -270,41 +276,84 @@ export function AdminSurvey() {
   const [isServiceTypeDialogOpen, setIsServiceTypeDialogOpen] = useState(false);
   const [editingServiceType, setEditingServiceType] = useState<BackendServiceType | null>(null);
   const [newServiceTypeName, setNewServiceTypeName] = useState('');
+  const statsRequestVersionRef = useRef(0);
+  const questionStatsRequestVersionRef = useRef(0);
+  const responsesRequestVersionRef = useRef(0);
+  const hasShownInvalidDateRangeToastRef = useRef(false);
+
+  const hasInvalidDateRange = useMemo(() => startDate > endDate, [startDate, endDate]);
+
+  const validateDateRange = (showToast = true) => {
+    if (!hasInvalidDateRange) {
+      hasShownInvalidDateRangeToastRef.current = false;
+      return true;
+    }
+
+    if (showToast && !hasShownInvalidDateRangeToastRef.current) {
+      toast.error('Rentang tanggal tidak valid. Tanggal mulai tidak boleh melebihi tanggal akhir.');
+      hasShownInvalidDateRangeToastRef.current = true;
+    }
+
+    return false;
+  };
+
+  const getCurrentReportFilters = () => ({
+    start_date: startDate,
+    end_date: endDate,
+    service_type_id: filterServiceType !== 'all' ? parseInt(filterServiceType) : undefined,
+  });
 
   // Fetch stats
   const fetchStats = async () => {
+    const requestVersion = ++statsRequestVersionRef.current;
     setIsLoadingStats(true);
+    setStatsErrorMessage(null);
     try {
-      const data = await api.admin.survey.responses.stats({
-        start_date: startDate,
-        end_date: endDate,
-        service_type_id: filterServiceType !== 'all' ? parseInt(filterServiceType) : undefined,
-      });
+      const data = await api.admin.survey.responses.stats(getCurrentReportFilters());
+      if (requestVersion !== statsRequestVersionRef.current) {
+        return;
+      }
       setStats(data);
+      setStatsErrorMessage(null);
     } catch (error) {
+      if (requestVersion !== statsRequestVersionRef.current) {
+        return;
+      }
       console.error('Failed to fetch stats:', error);
+      setStatsErrorMessage('Statistik terbaru gagal dimuat. Menampilkan data terakhir yang tersedia.');
       toast.error('Gagal memuat statistik survey');
     } finally {
-      setIsLoadingStats(false);
+      if (requestVersion === statsRequestVersionRef.current) {
+        setIsLoadingStats(false);
+      }
     }
 
   };
 
   // Fetch question stats
   const fetchQuestionStats = async () => {
+    const requestVersion = ++questionStatsRequestVersionRef.current;
     setIsLoadingQuestionStats(true);
+    setQuestionStatsErrorMessage(null);
     try {
-      const data = await api.admin.survey.responses.questionStats({
-        start_date: startDate,
-        end_date: endDate,
-        service_type_id: filterServiceType !== 'all' ? parseInt(filterServiceType) : undefined,
-      });
+      const data = await api.admin.survey.responses.questionStats(getCurrentReportFilters());
+      if (requestVersion !== questionStatsRequestVersionRef.current) {
+        return;
+      }
       setQuestionStats(data);
+      setQuestionStatsErrorMessage(null);
     } catch (error) {
+      if (requestVersion !== questionStatsRequestVersionRef.current) {
+        return;
+      }
       console.error('Failed to fetch question stats:', error);
+      setQuestionStats(null);
+      setQuestionStatsErrorMessage('Statistik per pertanyaan terbaru gagal dimuat. Periksa filter atau coba lagi.');
       toast.error('Gagal memuat statistik per pertanyaan');
     } finally {
-      setIsLoadingQuestionStats(false);
+      if (requestVersion === questionStatsRequestVersionRef.current) {
+        setIsLoadingQuestionStats(false);
+      }
     }
   };
 
@@ -323,29 +372,36 @@ export function AdminSurvey() {
 
   // Fetch responses with feedback
   const fetchResponses = async (page: number = 1) => {
+    const requestVersion = ++responsesRequestVersionRef.current;
     setIsLoadingResponses(true);
+    setResponsesErrorMessage(null);
     try {
-      const serviceTypeId = filterServiceType !== 'all' ? parseInt(filterServiceType) : undefined;
+      const reportFilters = getCurrentReportFilters();
       const perPage = 100;
       const firstPage = await api.admin.survey.responses.list({
-        start_date: startDate,
-        end_date: endDate,
-        service_type_id: serviceTypeId,
+        ...reportFilters,
         page: 1,
         per_page: perPage,
       });
+
+      if (requestVersion !== responsesRequestVersionRef.current) {
+        return;
+      }
 
       let allResponses = [...firstPage.items];
       const totalPages = Math.ceil(firstPage.total / perPage);
 
       for (let currentPage = 2; currentPage <= totalPages; currentPage += 1) {
         const nextPage = await api.admin.survey.responses.list({
-          start_date: startDate,
-          end_date: endDate,
-          service_type_id: serviceTypeId,
+          ...reportFilters,
           page: currentPage,
           per_page: perPage,
         });
+
+        if (requestVersion !== responsesRequestVersionRef.current) {
+          return;
+        }
+
         allResponses = allResponses.concat(nextPage.items);
       }
 
@@ -356,14 +412,28 @@ export function AdminSurvey() {
       const startIndex = (safePage - 1) * feedbackPerPage;
       const endIndex = startIndex + feedbackPerPage;
 
+      if (requestVersion !== responsesRequestVersionRef.current) {
+        return;
+      }
+
       setTotalFeedback(totalFilteredFeedback);
       setResponses(responsesWithFeedback.slice(startIndex, endIndex));
       setFeedbackPage(safePage);
+      setResponsesErrorMessage(null);
     } catch (error) {
+      if (requestVersion !== responsesRequestVersionRef.current) {
+        return;
+      }
       console.error('Failed to fetch responses:', error);
+      setResponses([]);
+      setTotalFeedback(0);
+      setFeedbackPage(1);
+      setResponsesErrorMessage('Feedback terbaru gagal dimuat. Periksa filter atau coba lagi.');
       toast.error('Gagal memuat feedback');
     } finally {
-      setIsLoadingResponses(false);
+      if (requestVersion === responsesRequestVersionRef.current) {
+        setIsLoadingResponses(false);
+      }
     }
   };
 
@@ -396,24 +466,45 @@ export function AdminSurvey() {
   };
 
   useEffect(() => {
-    fetchStats();
-    fetchQuestionStats();
-    fetchResponses();
     fetchQuestions();
     fetchServiceTypes();
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'laporan') {
-      fetchStats();
-      fetchQuestionStats();
-      setFeedbackPage(1);
-      fetchResponses(1);
+    if (activeTab !== 'laporan') {
+      return;
     }
-  }, [startDate, endDate, filterServiceType]);
+
+    if (!validateDateRange()) {
+      statsRequestVersionRef.current += 1;
+      questionStatsRequestVersionRef.current += 1;
+      responsesRequestVersionRef.current += 1;
+      setStats(null);
+      setStatsErrorMessage('Statistik laporan dinonaktifkan sampai rentang tanggal valid.');
+      setQuestionStats(null);
+      setQuestionStatsErrorMessage('Statistik per pertanyaan dinonaktifkan sampai rentang tanggal valid.');
+      setResponses([]);
+      setTotalFeedback(0);
+      setFeedbackPage(1);
+      setResponsesErrorMessage('Feedback dinonaktifkan sampai rentang tanggal valid.');
+      setIsLoadingStats(false);
+      setIsLoadingQuestionStats(false);
+      setIsLoadingResponses(false);
+      return;
+    }
+
+    fetchStats();
+    fetchQuestionStats();
+    setFeedbackPage(1);
+    fetchResponses(1);
+  }, [activeTab, startDate, endDate, filterServiceType]);
 
   // Export handler
   const handleExport = async () => {
+    if (!validateDateRange()) {
+      return;
+    }
+
     setIsExporting(true);
     try {
       const blob = await api.admin.survey.responses.export({
@@ -554,6 +645,13 @@ export function AdminSurvey() {
 
   const satisfactionOrder: SatisfactionRating[] = ['sangat_puas', 'puas', 'cukup_puas', 'tidak_puas', 'sangat_tidak_puas'];
 
+  const totalComplaints = useMemo(() => {
+    if (!questionStats) return 0;
+    return questionStats.questions.reduce((total, question) => {
+      return total + (question.complaint_responses?.length || 0);
+    }, 0);
+  }, [questionStats]);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -604,31 +702,32 @@ export function AdminSurvey() {
           {/* Filters */}
           <Card className="border-none shadow-sm bg-white dark:bg-slate-950">
             <CardContent className="pt-6">
-              <div className="flex flex-col md:flex-row gap-4 items-end">
-                <div className="space-y-1.5 flex-1">
-                  <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Periode</Label>
-                  <div className="flex items-center gap-2">
-                    <div className="relative flex-1">
-                      <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <Input
-                        type="date"
-                        value={startDate}
-                        onChange={(e) => setStartDate(e.target.value)}
-                        className="pl-9 bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800"
-                      />
-                    </div>
-                    <span className="text-muted-foreground">-</span>
-                    <div className="relative flex-1">
-                      <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <Input
-                        type="date"
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
-                        className="pl-9 bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800"
-                      />
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col md:flex-row gap-4 items-end">
+                  <div className="space-y-1.5 flex-1">
+                    <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Periode</Label>
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input
+                          type="date"
+                          value={startDate}
+                          onChange={(e) => setStartDate(e.target.value)}
+                          className="pl-9 bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+                        />
+                      </div>
+                      <span className="text-muted-foreground">-</span>
+                      <div className="relative flex-1">
+                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input
+                          type="date"
+                          value={endDate}
+                          onChange={(e) => setEndDate(e.target.value)}
+                          className="pl-9 bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
                 <div className="space-y-1.5 min-w-[240px]">
                   <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Filter Layanan</Label>
                   <Select value={filterServiceType} onValueChange={setFilterServiceType}>
@@ -670,10 +769,22 @@ export function AdminSurvey() {
                   </Button>
                 </div>
               </div>
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Statistik, daftar keluhan, feedback umum, dan hasil export mengikuti filter periode dan layanan yang sedang aktif.
+                </p>
+                {hasInvalidDateRange && (
+                  <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-200">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>Tanggal mulai tidak boleh melebihi tanggal akhir. Perbaiki rentang tanggal untuk memuat ulang laporan atau melakukan export.</span>
+                  </div>
+                )}
+              </div>
+            </div>
             </CardContent>
           </Card>
 
-          {isLoadingStats ? (
+          {isLoadingStats && !stats ? (
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {[...Array(4)].map((_, i) => (
@@ -714,42 +825,55 @@ export function AdminSurvey() {
             </div>
           ) : stats ? (
             <div className="space-y-6">
+              {!isLoadingStats && (
+                <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-muted-foreground dark:border-slate-800 dark:bg-slate-900/80">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{statsErrorMessage ?? 'Data statistik ditampilkan sesuai filter laporan yang sedang aktif.'}</span>
+                </div>
+              )}
               {/* Overview Stats Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <StatCard 
-                  title="Total Responden" 
-                  value={stats.total_responses} 
-                  icon={Users} 
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                <StatCard
+                  title="Total Responden"
+                  value={stats.total_responses}
+                  icon={Users}
                   color="bg-blue-500"
                   delay={0}
                   tooltip="Total responden yang telah mengisi survey"
                 />
-                
-                <StatCard 
-                  title="Tingkat Kepuasan" 
-                  value={`${stats.total_responses > 0 
+
+                <StatCard
+                  title="Tingkat Kepuasan"
+                  value={`${stats.total_responses > 0
                     ? Math.round(((stats.rating_distribution['sangat_puas'] || 0) + (stats.rating_distribution['puas'] || 0)) / stats.total_responses * 100)
                     : 0}%`}
-                  icon={CheckCircle2} 
+                  icon={CheckCircle2}
                   color="bg-emerald-500"
-                  trend={2.5}
                   delay={0.1}
                   tooltip="Persentase responden yang memberikan rating Puas atau Sangat Puas"
                 />
-                <StatCard 
-                  title="Mengisi Sendiri" 
-                  value={stats.by_filled_by.sendiri} 
-                  icon={Edit} 
-                  color="bg-violet-500"
+                <StatCard
+                  title="Total Keluhan"
+                  value={totalComplaints}
+                  icon={AlertCircle}
+                  color="bg-rose-500"
                   delay={0.2}
+                  tooltip="Akumulasi keluhan pada pertanyaan rating sesuai filter yang aktif"
+                />
+                <StatCard
+                  title="Mengisi Sendiri"
+                  value={stats.by_filled_by.sendiri}
+                  icon={Edit}
+                  color="bg-violet-500"
+                  delay={0.3}
                   tooltip="Responden yang mengisi survey secara mandiri"
                 />
-                <StatCard 
-                  title="Diwakilkan" 
-                  value={stats.by_filled_by.diwakilkan} 
-                  icon={Users} 
+                <StatCard
+                  title="Diwakilkan"
+                  value={stats.by_filled_by.diwakilkan}
+                  icon={Users}
                   color="bg-amber-500"
-                  delay={0.3}
+                  delay={0.4}
                   tooltip="Responden yang diwakilkan oleh petugas"
                 />
               </div>
@@ -898,10 +1022,16 @@ export function AdminSurvey() {
                         Detail Per Pertanyaan
                       </CardTitle>
                       <CardDescription>
-                        Statistik dan feedback untuk setiap pertanyaan survey
+                        Statistik per pertanyaan dan daftar keluhan spesifik untuk rating rendah.
                       </CardDescription>
                     </CardHeader>
-                    <CardContent className="flex-1">
+                    <CardContent className="flex-1 space-y-4">
+                      {questionStatsErrorMessage && !isLoadingQuestionStats && (
+                        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-200">
+                          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                          <span>{questionStatsErrorMessage}</span>
+                        </div>
+                      )}
                       {isLoadingQuestionStats ? (
                         <div className="flex flex-col items-center justify-center py-12 space-y-4">
                           <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -910,63 +1040,99 @@ export function AdminSurvey() {
                       ) : questionStats && questionStats.questions.length > 0 ? (
                         <ScrollArea className="h-[600px]">
                           <div className="space-y-4 pr-4">
-                        {questionStats.questions.map((question, index) => (
-                          <div
-                            key={question.question_id}
-                            className="border rounded-xl overflow-hidden bg-slate-50/50 dark:bg-slate-900/50"
-                          >
-                            {/* Question Header */}
-                            <div
-                              className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-800/50 transition-colors"
-                              onClick={() => toggleExpandQuestion(question.question_id)}
-                            >
-                              <div className="flex items-center gap-3 flex-1">
-                                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-sm font-bold text-primary">
-                                  {index + 1}
-                                </div>
-                                <div className="flex-1">
-                                  <p className="font-medium text-sm">{question.question_text}</p>
-                                  <div className="flex items-center gap-2 mt-1">
-                                    <Badge variant="outline" className="text-xs">
-                                      {question.question_type === 'rating'
-                                        ? 'Rating'
-                                        : question.question_type === 'multiple_choice'
-                                          ? 'Pilihan Ganda'
-                                          : 'Teks'}
-                                    </Badge>
-                                    <span className="text-xs text-muted-foreground">{question.response_count} respons</span>
-                                    {question.question_type === 'rating' && question.rating_distribution && question.response_count > 0 && (() => {
-                                      const ratingScoreMap: Record<SatisfactionRating, number> = {
-                                        'sangat_puas': 5,
-                                        'puas': 4,
-                                        'cukup_puas': 3,
-                                        'tidak_puas': 2,
-                                        'sangat_tidak_puas': 1,
-                                      };
-                                      const totalScore = satisfactionOrder.reduce((acc, rating) => {
-                                        const count = question.rating_distribution?.[rating] || 0;
-                                        return acc + (ratingScoreMap[rating] * count);
-                                      }, 0);
-                                      const avgScore = (totalScore / question.response_count).toFixed(1);
-                                      return (
-                                        <>
-                                          <span className="text-xs text-muted-foreground">•</span>
-                                          <Badge className="text-xs font-bold bg-amber-500 hover:bg-amber-600">
-                                            Rata-rata: {avgScore}/5
+                            {questionStats.questions.map((question, index) => {
+                              const complaintCount = question.complaint_responses?.length || 0;
+                              const lowRatingCount = question.question_type === 'rating' && question.rating_distribution
+                                ? (question.rating_distribution.tidak_puas || 0) + (question.rating_distribution.sangat_tidak_puas || 0)
+                                : 0;
+                              const lowRatingPercentage = question.response_count > 0
+                                ? Math.round((lowRatingCount / question.response_count) * 100)
+                                : 0;
+                              const avgScore = question.question_type === 'rating' && question.rating_distribution && question.response_count > 0
+                                ? (() => {
+                                    const ratingScoreMap: Record<SatisfactionRating, number> = {
+                                      sangat_puas: 5,
+                                      puas: 4,
+                                      cukup_puas: 3,
+                                      tidak_puas: 2,
+                                      sangat_tidak_puas: 1,
+                                    };
+                                    const totalScore = satisfactionOrder.reduce((acc, rating) => {
+                                      const count = question.rating_distribution?.[rating] || 0;
+                                      return acc + (ratingScoreMap[rating] * count);
+                                    }, 0);
+                                    return (totalScore / question.response_count).toFixed(1);
+                                  })()
+                                : null;
+
+                              return (
+                                <div
+                                  key={question.question_id}
+                                  className={cn(
+                                    "border rounded-xl overflow-hidden bg-slate-50/50 dark:bg-slate-900/50 transition-colors",
+                                    complaintCount > 0 && "border-rose-200 bg-rose-50/40 dark:border-rose-900/60 dark:bg-rose-950/10"
+                                  )}
+                                >
+                                  {/* Question Header */}
+                                  <div
+                                    className={cn(
+                                      "flex items-center justify-between p-4 cursor-pointer transition-colors",
+                                      complaintCount > 0
+                                        ? "hover:bg-rose-100/50 dark:hover:bg-rose-950/20"
+                                        : "hover:bg-slate-100/50 dark:hover:bg-slate-800/50"
+                                    )}
+                                    onClick={() => toggleExpandQuestion(question.question_id)}
+                                  >
+                                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-sm font-bold text-primary shrink-0">
+                                        {index + 1}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <p className="font-medium text-sm">{question.question_text}</p>
+                                        <div className="flex flex-wrap items-center gap-2 mt-1">
+                                          <Badge variant="outline" className="text-xs">
+                                            {question.question_type === 'rating'
+                                              ? 'Rating'
+                                              : question.question_type === 'multiple_choice'
+                                                ? 'Pilihan Ganda'
+                                                : 'Teks'}
                                           </Badge>
-                                        </>
-                                      );
-                                    })()}
+                                          <span className="text-xs text-muted-foreground">{question.response_count} respons</span>
+                                          {avgScore && (
+                                            <Badge className="text-xs font-bold bg-amber-500 hover:bg-amber-600">
+                                              Rata-rata {avgScore}/5
+                                            </Badge>
+                                          )}
+                                          {question.question_type === 'rating' && (
+                                            <>
+                                              <Badge
+                                                variant={complaintCount > 0 ? 'destructive' : 'secondary'}
+                                                className="text-xs"
+                                              >
+                                                {complaintCount} keluhan
+                                              </Badge>
+                                              <Badge
+                                                variant="outline"
+                                                className={cn(
+                                                  "text-xs",
+                                                  lowRatingCount > 0 && "border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-300"
+                                                )}
+                                              >
+                                                Rating rendah {lowRatingCount} ({lowRatingPercentage}%)
+                                              </Badge>
+                                            </>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <motion.div
+                                      animate={{ rotate: expandedQuestions.has(question.question_id) ? 180 : 0 }}
+                                      transition={{ duration: 0.2 }}
+                                      className="shrink-0"
+                                    >
+                                      <ArrowRight className="w-5 h-5 text-muted-foreground rotate-90" />
+                                    </motion.div>
                                   </div>
-                                </div>
-                              </div>
-                              <motion.div
-                                animate={{ rotate: expandedQuestions.has(question.question_id) ? 180 : 0 }}
-                                transition={{ duration: 0.2 }}
-                              >
-                                <ArrowRight className="w-5 h-5 text-muted-foreground rotate-90" />
-                              </motion.div>
-                            </div>
 
                             {/* Expanded Content */}
                             <AnimatePresence>
@@ -1019,9 +1185,9 @@ export function AdminSurvey() {
                                         <div className="space-y-3">
                                           <div className="flex items-center justify-between gap-3">
                                             <div>
-                                              <p className="text-sm font-semibold">Keluhan untuk rating rendah</p>
+                                              <p className="text-sm font-semibold">Keluhan pada pertanyaan ini</p>
                                               <p className="text-xs text-muted-foreground">
-                                                Ditampilkan terpisah dari feedback umum.
+                                                Khusus alasan pada rating rendah. Feedback umum tetap ditampilkan terpisah di panel sebelah.
                                               </p>
                                             </div>
                                             <Badge variant="secondary" className="text-xs">
@@ -1066,7 +1232,7 @@ export function AdminSurvey() {
                                             </ScrollArea>
                                           ) : (
                                             <div className="text-center py-4 text-muted-foreground text-sm rounded-lg border border-dashed">
-                                              Belum ada keluhan untuk rating rendah pada pertanyaan ini
+                                              Belum ada keluhan yang tercatat untuk rating rendah pada pertanyaan ini
                                             </div>
                                           )}
                                         </div>
@@ -1109,8 +1275,9 @@ export function AdminSurvey() {
                               )}
                             </AnimatePresence>
                           </div>
-                        ))}
-                      </div>
+                              );
+                            })}
+                          </div>
                         </ScrollArea>
                     ) : (
                       <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
@@ -1139,10 +1306,16 @@ export function AdminSurvey() {
                       Feedback & Saran Umum
                     </CardTitle>
                     <CardDescription>
-                      Komentar dan saran tambahan dari responden
+                      Komentar dan saran umum responden, terpisah dari keluhan per pertanyaan rating.
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="flex-1">
+                  <CardContent className="flex-1 space-y-4">
+                    {responsesErrorMessage && !isLoadingResponses && (
+                      <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-200">
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>{responsesErrorMessage}</span>
+                      </div>
+                    )}
                     {isLoadingResponses ? (
                       <div className="flex flex-col items-center justify-center py-12 space-y-4">
                         <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -1260,7 +1433,19 @@ export function AdminSurvey() {
               </motion.div>
               </div>
             </div>
-          ) : null}
+          ) : (
+            <Card className="border-none shadow-md bg-white dark:bg-slate-950">
+              <CardContent className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800">
+                  <AlertCircle className="h-8 w-8 opacity-60" />
+                </div>
+                <p className="font-medium text-foreground">Statistik laporan belum tersedia</p>
+                <p className="mt-2 max-w-md text-sm text-muted-foreground">
+                  {statsErrorMessage ?? 'Belum ada data statistik yang bisa ditampilkan untuk filter yang sedang dipilih.'}
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* TAB: Kelola Pertanyaan */}
