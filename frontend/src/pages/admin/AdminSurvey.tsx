@@ -105,25 +105,45 @@ interface ChartDataItem {
   count: number;
 }
 
+type RatingDistribution = Partial<Record<SatisfactionRating, number>>;
+
+const satisfactionOrder: SatisfactionRating[] = ['sangat_puas', 'puas', 'cukup_puas', 'tidak_puas', 'sangat_tidak_puas'];
+
+const getAverageScoreFromDistribution = (distribution: RatingDistribution) => {
+  const ratingScoreMap: Record<SatisfactionRating, number> = {
+    sangat_puas: 5,
+    puas: 4,
+    cukup_puas: 3,
+    tidak_puas: 2,
+    sangat_tidak_puas: 1,
+  };
+
+  const totalResponses = satisfactionOrder.reduce((total, rating) => {
+    return total + (distribution[rating] || 0);
+  }, 0);
+
+  if (totalResponses === 0) {
+    return 0;
+  }
+
+  const totalScore = satisfactionOrder.reduce((total, rating) => {
+    return total + ((distribution[rating] || 0) * ratingScoreMap[rating]);
+  }, 0);
+
+  return totalScore / totalResponses;
+};
+
 const CustomDonutChart = ({ data }: { data: ChartDataItem[] }) => {
   const total = data.reduce((acc, curr) => acc + curr.count, 0);
   let currentAngle = 0;
   const radius = 80;
   const center = 100;
-  
-  // Map rating to numeric score
-  const ratingScoreMap: Record<SatisfactionRating, number> = {
-    'sangat_puas': 5,
-    'puas': 4,
-    'cukup_puas': 3,
-    'tidak_puas': 2,
-    'sangat_tidak_puas': 1,
-  };
-  
-  // Calculate average score
-  const averageScore = total > 0 
-    ? (data.reduce((acc, curr) => acc + (ratingScoreMap[curr.rating] * curr.count), 0) / total).toFixed(1)
-    : "0.0";
+  const averageScore = getAverageScoreFromDistribution(
+    data.reduce<RatingDistribution>((distribution, item) => {
+      distribution[item.rating] = item.count;
+      return distribution;
+    }, {})
+  ).toFixed(1);
 
   return (
     <div className="flex flex-col md:flex-row items-center justify-center gap-8 h-full">
@@ -637,14 +657,6 @@ export function AdminSurvey() {
     }
   };
 
-  // Calculate percentages
-  const getPercentage = (value: number, total: number) => {
-    if (total === 0) return 0;
-    return Math.round((value / total) * 100);
-  };
-
-  const satisfactionOrder: SatisfactionRating[] = ['sangat_puas', 'puas', 'cukup_puas', 'tidak_puas', 'sangat_tidak_puas'];
-
   const totalComplaints = useMemo(() => {
     if (!questionStats) return 0;
     return questionStats.questions.reduce((total, question) => {
@@ -946,53 +958,71 @@ export function AdminSurvey() {
                           {stats.by_service_type.length > 0 ? (
                             stats.by_service_type
                               .map(item => {
-                                const satisfiedCount = (item.rating_distribution['sangat_puas'] || 0) + (item.rating_distribution['puas'] || 0);
-                                const satisfactionPercent = item.total > 0 ? Math.round(satisfiedCount / item.total * 100) : 0;
-                                return { ...item, satisfactionPercent };
+                                const satisfactionPercent = item.total > 0
+                                  ? Math.round((((item.rating_distribution['sangat_puas'] || 0) + (item.rating_distribution['puas'] || 0)) / item.total) * 100)
+                                  : 0;
+                                const averageScore = getAverageScoreFromDistribution(item.rating_distribution);
+                                return { ...item, satisfactionPercent, averageScore };
                               })
-                              .sort((a, b) => b.satisfactionPercent - a.satisfactionPercent)
-                              .map((item, index) => (
-                                <div key={item.service_type_id} className="group">
-                                  <div className="flex items-center justify-between mb-2">
-                                    <div className="flex items-center gap-3 overflow-hidden">
-                                      <div className={cn(
-                                        "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
-                                        index < 3 ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
-                                      )}>
-                                        {index + 1}
+                              .sort((a, b) => {
+                                if (b.averageScore !== a.averageScore) {
+                                  return b.averageScore - a.averageScore;
+                                }
+                                if (b.satisfactionPercent !== a.satisfactionPercent) {
+                                  return b.satisfactionPercent - a.satisfactionPercent;
+                                }
+                                return b.total - a.total;
+                              })
+                              .map((item, index) => {
+                                const metricColorClass = item.averageScore >= 4.5
+                                  ? 'text-emerald-600 dark:text-emerald-400'
+                                  : item.averageScore >= 3.5
+                                    ? 'text-blue-600 dark:text-blue-400'
+                                    : item.averageScore >= 2.5
+                                      ? 'text-amber-600 dark:text-amber-400'
+                                      : 'text-rose-600 dark:text-rose-400';
+                                const progressColorClass = item.averageScore >= 4.5
+                                  ? 'bg-emerald-500'
+                                  : item.averageScore >= 3.5
+                                    ? 'bg-blue-500'
+                                    : item.averageScore >= 2.5
+                                      ? 'bg-amber-500'
+                                      : 'bg-rose-500';
+                                const progressWidth = `${(item.averageScore / 5) * 100}%`;
+
+                                return (
+                                  <div key={item.service_type_id} className="group">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <div className="flex items-center gap-3 overflow-hidden">
+                                        <div className={cn(
+                                          "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
+                                          index < 3 ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                                        )}>
+                                          {index + 1}
+                                        </div>
+                                        <span className="font-medium truncate text-sm" title={item.service_type_name}>
+                                          {item.service_type_name}
+                                        </span>
                                       </div>
-                                      <span className="font-medium truncate text-sm" title={item.service_type_name}>
-                                        {item.service_type_name}
+                                      <span className={cn("text-sm font-bold", metricColorClass)}>
+                                        {item.averageScore.toFixed(1)} / 5
                                       </span>
                                     </div>
-                                    <span className={cn(
-                                      "text-sm font-bold",
-                                      item.satisfactionPercent >= 80 ? "text-emerald-600" :
-                                      item.satisfactionPercent >= 60 ? "text-blue-600" :
-                                      "text-amber-600"
-                                    )}>
-                                      {item.satisfactionPercent}%
-                                    </span>
+                                    <div className="relative h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                      <motion.div
+                                        initial={{ width: 0 }}
+                                        animate={{ width: progressWidth }}
+                                        transition={{ duration: 1, delay: 0.5 + (index * 0.1) }}
+                                        className={cn("h-full rounded-full transition-all", progressColorClass)}
+                                      />
+                                    </div>
+                                    <div className="flex justify-between mt-1 text-[10px] text-muted-foreground">
+                                      <span>{item.satisfactionPercent}% puas</span>
+                                      <span>{item.total} responden</span>
+                                    </div>
                                   </div>
-                                  <div className="relative h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                                    <motion.div
-                                      initial={{ width: 0 }}
-                                      animate={{ width: `${item.satisfactionPercent}%` }}
-                                      transition={{ duration: 1, delay: 0.5 + (index * 0.1) }}
-                                      className={cn(
-                                        "h-full rounded-full transition-all",
-                                        item.satisfactionPercent >= 80 ? "bg-emerald-500" :
-                                        item.satisfactionPercent >= 60 ? "bg-blue-500" :
-                                        "bg-amber-500"
-                                      )}
-                                    />
-                                  </div>
-                                  <div className="flex justify-between mt-1 text-[10px] text-muted-foreground">
-                                    <span>{(item.rating_distribution['sangat_puas'] || 0) + (item.rating_distribution['puas'] || 0)}/{item.total} puas</span>
-                                    <span>Target: 80%</span>
-                                  </div>
-                                </div>
-                              ))
+                                );
+                              })
                           ) : (
                             <div className="text-center py-8 text-muted-foreground text-sm">
                               Belum ada data layanan
@@ -1049,20 +1079,7 @@ export function AdminSurvey() {
                                 ? Math.round((lowRatingCount / question.response_count) * 100)
                                 : 0;
                               const avgScore = question.question_type === 'rating' && question.rating_distribution && question.response_count > 0
-                                ? (() => {
-                                    const ratingScoreMap: Record<SatisfactionRating, number> = {
-                                      sangat_puas: 5,
-                                      puas: 4,
-                                      cukup_puas: 3,
-                                      tidak_puas: 2,
-                                      sangat_tidak_puas: 1,
-                                    };
-                                    const totalScore = satisfactionOrder.reduce((acc, rating) => {
-                                      const count = question.rating_distribution?.[rating] || 0;
-                                      return acc + (ratingScoreMap[rating] * count);
-                                    }, 0);
-                                    return (totalScore / question.response_count).toFixed(1);
-                                  })()
+                                ? getAverageScoreFromDistribution(question.rating_distribution).toFixed(1)
                                 : null;
 
                               return (
