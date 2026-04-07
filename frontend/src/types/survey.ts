@@ -58,13 +58,22 @@ export interface SurveyQuestion {
   created_at: string;
 }
 
+export interface StructuredSurveyAnswer {
+  answer: string;
+  complaint?: string;
+}
+
+export type LegacySurveyAnswer = string;
+export type SurveyQuestionResponse = StructuredSurveyAnswer;
+export type AdminSurveyQuestionResponse = LegacySurveyAnswer | StructuredSurveyAnswer;
+
 // Survey Response
 export interface SurveyResponse {
   id: number;
   service_type_id: number;
   service_type_name?: string;
   filled_by: 'sendiri' | 'diwakilkan';
-  responses: Record<number, string | SatisfactionRating>; // question_id -> answer
+  responses: Record<number, SurveyQuestionResponse>; // question_id -> structured answer
   feedback?: string;
   submitted_at: string;
 }
@@ -73,7 +82,7 @@ export interface SurveyResponse {
 export interface SurveyFormData {
   service_type_id: number;
   filled_by: 'sendiri' | 'diwakilkan';
-  responses: Record<number, string | SatisfactionRating>;
+  responses: Record<number, SurveyQuestionResponse>;
   feedback?: string;
 }
 
@@ -117,7 +126,7 @@ export interface BackendSurveyResponse {
   service_type_id: number;
   service_type_name: string;
   filled_by: 'sendiri' | 'diwakilkan';
-  responses: Record<number, string>;
+  responses: Record<number, AdminSurveyQuestionResponse>;
   feedback: string | null;
   submitted_at: string;
 }
@@ -152,6 +161,14 @@ export interface TextFeedbackItem {
   submitted_at: string;
 }
 
+export interface ComplaintFeedbackItem {
+  response_id: number;
+  complaint: string;
+  rating: SatisfactionRating;
+  service_type_name: string;
+  submitted_at: string;
+}
+
 export interface QuestionStatistics {
   question_id: number;
   question_text: string;
@@ -159,6 +176,7 @@ export interface QuestionStatistics {
   response_count: number;
   rating_distribution?: Record<SatisfactionRating, number>;
   text_responses?: TextFeedbackItem[];
+  complaint_responses?: ComplaintFeedbackItem[];
 }
 
 export interface BackendQuestionStatsResponse {

@@ -58,7 +58,6 @@ import {
   SATISFACTION_COLORS,
   SATISFACTION_COLOR_HEX,
   BackendQuestionStatsResponse,
-  QuestionStatistics,
 } from '@/types/survey';
 import { cn } from '@/lib/utils';
 
@@ -326,23 +325,40 @@ export function AdminSurvey() {
   const fetchResponses = async (page: number = 1) => {
     setIsLoadingResponses(true);
     try {
-      // Get all responses to filter by feedback, then paginate client-side
-      const data = await api.admin.survey.responses.list({
+      const serviceTypeId = filterServiceType !== 'all' ? parseInt(filterServiceType) : undefined;
+      const perPage = 100;
+      const firstPage = await api.admin.survey.responses.list({
         start_date: startDate,
         end_date: endDate,
-        service_type_id: filterServiceType !== 'all' ? parseInt(filterServiceType) : undefined,
+        service_type_id: serviceTypeId,
         page: 1,
-        per_page: 100, // Get enough responses to filter
+        per_page: perPage,
       });
-      // Filter only responses with feedback
-      const responsesWithFeedback = data.items.filter(r => r.feedback && r.feedback.trim());
-      setTotalFeedback(responsesWithFeedback.length);
-      
-      // Paginate client-side
-      const startIndex = (page - 1) * feedbackPerPage;
+
+      let allResponses = [...firstPage.items];
+      const totalPages = Math.ceil(firstPage.total / perPage);
+
+      for (let currentPage = 2; currentPage <= totalPages; currentPage += 1) {
+        const nextPage = await api.admin.survey.responses.list({
+          start_date: startDate,
+          end_date: endDate,
+          service_type_id: serviceTypeId,
+          page: currentPage,
+          per_page: perPage,
+        });
+        allResponses = allResponses.concat(nextPage.items);
+      }
+
+      const responsesWithFeedback = allResponses.filter((response) => response.feedback && response.feedback.trim());
+      const totalFilteredFeedback = responsesWithFeedback.length;
+      const totalPagesWithFeedback = Math.max(1, Math.ceil(totalFilteredFeedback / feedbackPerPage));
+      const safePage = Math.min(page, totalPagesWithFeedback);
+      const startIndex = (safePage - 1) * feedbackPerPage;
       const endIndex = startIndex + feedbackPerPage;
+
+      setTotalFeedback(totalFilteredFeedback);
       setResponses(responsesWithFeedback.slice(startIndex, endIndex));
-      setFeedbackPage(page);
+      setFeedbackPage(safePage);
     } catch (error) {
       console.error('Failed to fetch responses:', error);
       toast.error('Gagal memuat feedback');
@@ -369,7 +385,7 @@ export function AdminSurvey() {
   const fetchServiceTypes = async () => {
     setIsLoadingServiceTypes(true);
     try {
-      const data = await api.admin.survey.serviceTypes.list();
+      const data = await api.admin.survey.serviceTypes.list(true);
       setServiceTypes(data);
     } catch (error) {
       console.error('Failed to fetch service types:', error);
@@ -912,7 +928,11 @@ export function AdminSurvey() {
                                   <p className="font-medium text-sm">{question.question_text}</p>
                                   <div className="flex items-center gap-2 mt-1">
                                     <Badge variant="outline" className="text-xs">
-                                      {question.question_type === 'rating' ? 'Rating' : 'Teks'}
+                                      {question.question_type === 'rating'
+                                        ? 'Rating'
+                                        : question.question_type === 'multiple_choice'
+                                          ? 'Pilihan Ganda'
+                                          : 'Teks'}
                                     </Badge>
                                     <span className="text-xs text-muted-foreground">{question.response_count} respons</span>
                                     {question.question_type === 'rating' && question.rating_distribution && question.response_count > 0 && (() => {
@@ -961,38 +981,95 @@ export function AdminSurvey() {
                                   <div className="p-4 pt-0 border-t">
                                     {question.question_type === 'rating' && question.rating_distribution ? (
                                       /* Rating Distribution */
-                                      <div className="space-y-3">
-                                        {satisfactionOrder.map((rating) => {
-                                          const count = question.rating_distribution?.[rating] || 0;
-                                          const percentage = question.response_count > 0 
-                                            ? Math.round((count / question.response_count) * 100) 
-                                            : 0;
-                                          return (
-                                            <div key={rating} className="space-y-2">
-                                              <div className="flex items-center justify-between">
-                                                <div className="flex items-center gap-2">
-                                                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: SATISFACTION_COLOR_HEX[rating] }} />
-                                                  <span className="text-xs font-medium">{SATISFACTION_LABELS[rating]}</span>
+                                      <div className="space-y-5">
+                                        <div className="space-y-3">
+                                          {satisfactionOrder.map((rating) => {
+                                            const count = question.rating_distribution?.[rating] || 0;
+                                            const percentage = question.response_count > 0
+                                              ? Math.round((count / question.response_count) * 100)
+                                              : 0;
+                                            return (
+                                              <div key={rating} className="space-y-2">
+                                                <div className="flex items-center justify-between">
+                                                  <div className="flex items-center gap-2">
+                                                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: SATISFACTION_COLOR_HEX[rating] }} />
+                                                    <span className="text-xs font-medium">{SATISFACTION_LABELS[rating]}</span>
+                                                  </div>
+                                                  <div className="flex items-center gap-2">
+                                                    <span className="text-sm font-bold">{count}</span>
+                                                    <Badge variant="outline" className="text-xs min-w-[3rem] justify-center">
+                                                      {percentage}%
+                                                    </Badge>
+                                                  </div>
                                                 </div>
-                                                <div className="flex items-center gap-2">
-                                                  <span className="text-sm font-bold">{count}</span>
-                                                  <Badge variant="outline" className="text-xs min-w-[3rem] justify-center">
-                                                    {percentage}%
-                                                  </Badge>
+                                                <div className="relative h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                                  <motion.div
+                                                    initial={{ width: 0 }}
+                                                    animate={{ width: `${percentage}%` }}
+                                                    transition={{ duration: 0.8, delay: 0.1 }}
+                                                    className="h-full rounded-full"
+                                                    style={{ backgroundColor: SATISFACTION_COLOR_HEX[rating] }}
+                                                  />
                                                 </div>
                                               </div>
-                                              <div className="relative h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                                                <motion.div
-                                                  initial={{ width: 0 }}
-                                                  animate={{ width: `${percentage}%` }}
-                                                  transition={{ duration: 0.8, delay: 0.1 }}
-                                                  className="h-full rounded-full"
-                                                  style={{ backgroundColor: SATISFACTION_COLOR_HEX[rating] }}
-                                                />
-                                              </div>
+                                            );
+                                          })}
+                                        </div>
+
+                                        <div className="space-y-3">
+                                          <div className="flex items-center justify-between gap-3">
+                                            <div>
+                                              <p className="text-sm font-semibold">Keluhan untuk rating rendah</p>
+                                              <p className="text-xs text-muted-foreground">
+                                                Ditampilkan terpisah dari feedback umum.
+                                              </p>
                                             </div>
-                                          );
-                                        })}
+                                            <Badge variant="secondary" className="text-xs">
+                                              {question.complaint_responses?.length || 0} keluhan
+                                            </Badge>
+                                          </div>
+
+                                          {question.complaint_responses && question.complaint_responses.length > 0 ? (
+                                            <ScrollArea className="h-[260px]">
+                                              <div className="space-y-3 pr-4">
+                                                {question.complaint_responses.map((complaint, idx) => (
+                                                  <motion.div
+                                                    key={`${complaint.response_id}-${idx}`}
+                                                    initial={{ opacity: 0, x: -10 }}
+                                                    animate={{ opacity: 1, x: 0 }}
+                                                    transition={{ delay: idx * 0.05 }}
+                                                    className="p-3 rounded-lg bg-white dark:bg-slate-800 border shadow-sm hover:shadow-md transition-shadow"
+                                                  >
+                                                    <div className="flex items-center gap-2 flex-wrap mb-2">
+                                                      <Badge variant="outline" className="text-xs">
+                                                        {SATISFACTION_LABELS[complaint.rating]}
+                                                      </Badge>
+                                                      <Badge variant="secondary" className="text-xs">
+                                                        <Building2 className="w-3 h-3 mr-1" />
+                                                        {complaint.service_type_name}
+                                                      </Badge>
+                                                      <Badge variant="outline" className="text-xs">
+                                                        <Calendar className="w-3 h-3 mr-1" />
+                                                        {new Date(complaint.submitted_at).toLocaleDateString('id-ID', {
+                                                          day: 'numeric',
+                                                          month: 'short',
+                                                          year: 'numeric',
+                                                          hour: '2-digit',
+                                                          minute: '2-digit'
+                                                        })}
+                                                      </Badge>
+                                                    </div>
+                                                    <p className="text-sm whitespace-pre-wrap leading-relaxed">{complaint.complaint}</p>
+                                                  </motion.div>
+                                                ))}
+                                              </div>
+                                            </ScrollArea>
+                                          ) : (
+                                            <div className="text-center py-4 text-muted-foreground text-sm rounded-lg border border-dashed">
+                                              Belum ada keluhan untuk rating rendah pada pertanyaan ini
+                                            </div>
+                                          )}
+                                        </div>
                                       </div>
                                     ) : question.text_responses && question.text_responses.length > 0 ? (
                                       /* Text Feedback List */
@@ -1293,7 +1370,11 @@ export function AdminSurvey() {
                             </div>
                             <div className="flex items-center gap-2 mt-1">
                               <Badge variant="outline" className="text-xs">
-                                {question.question_type === 'rating' ? 'Rating' : 'Teks'}
+                                {question.question_type === 'rating'
+                                  ? 'Rating'
+                                  : question.question_type === 'multiple_choice'
+                                    ? 'Pilihan Ganda'
+                                    : 'Teks'}
                               </Badge>
                               {question.is_required && (
                                 <Badge variant="outline" className="text-xs text-red-500 border-red-200">

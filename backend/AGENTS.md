@@ -22,6 +22,19 @@ alembic revision --autogenerate -m "description"
 alembic upgrade head
 ```
 
+Jika virtualenv lokal tidak menyediakan executable `python`/`python3` yang bisa dipanggil langsung dari `venv/bin`, jalankan backend dari folder `backend/` memakai Python sistem yang sudah punya dependency project:
+
+```bash
+cd backend
+python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Setelah restart backend, validasi schema live dengan:
+
+```bash
+curl http://127.0.0.1:8000/openapi.json
+```
+
 ## Patterns & Conventions
 
 ### File Organization

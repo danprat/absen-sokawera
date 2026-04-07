@@ -55,7 +55,7 @@ class SurveyResponse(Base):
     id = Column(Integer, primary_key=True, index=True)
     service_type_id = Column(Integer, ForeignKey("service_types.id"), nullable=False)
     filled_by = Column(Enum(FilledByType), nullable=False)
-    responses = Column(JSON, nullable=False)  # {question_id: answer}
+    responses = Column(JSON, nullable=False)  # New submissions store {question_id: {answer, complaint?}}; legacy rows may still contain plain string answers.
     feedback = Column(Text, nullable=True)
     submitted_at = Column(DateTime, server_default=func.now(), nullable=False)
 

@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Star, ArrowLeft, ArrowRight, Send, Loader2, CheckCircle, Home, ClipboardList, User } from 'lucide-react';
+import { Star, ArrowLeft, ArrowRight, Send, Loader2, CheckCircle, Home } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -9,12 +9,13 @@ import { Header } from '@/components/Header';
 import { useSettings } from '@/hooks/useSettings';
 import api from '@/lib/api';
 import { toast } from 'sonner';
-import { 
-  BackendServiceType, 
+import {
+  BackendServiceType,
   BackendSurveyQuestion,
   SatisfactionRating,
   SATISFACTION_LABELS,
   SATISFACTION_ICONS,
+  SurveyQuestionResponse,
 } from '@/types/survey';
 
 // Step indicator component
@@ -48,12 +49,13 @@ export function Survey() {
   const [currentStep, setCurrentStep] = useState(0);
   const [serviceTypes, setServiceTypes] = useState<BackendServiceType[]>([]);
   const [questions, setQuestions] = useState<BackendSurveyQuestion[]>([]);
+  const [hasLoadError, setHasLoadError] = useState(false);
   const feedbackInputRef = useRef<HTMLTextAreaElement>(null);
 
   const [formData, setFormData] = useState<{
     service_type_id: number | null;
     filled_by: 'sendiri' | 'diwakilkan' | null;
-    responses: Record<number, string>;
+    responses: Record<number, SurveyQuestionResponse>;
     feedback: string;
   }>({
     service_type_id: null,
@@ -77,24 +79,31 @@ export function Survey() {
     }
   }, [currentStep, totalSteps]);
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const [typesData, questionsData] = await Promise.all([
-          api.survey.getServiceTypes(),
-          api.survey.getQuestions(),
-        ]);
-        setServiceTypes(typesData.filter(t => t.is_active));
-        setQuestions(questionsData.filter(q => q.is_active).sort((a, b) => a.order - b.order));
-      } catch (error) {
-        console.error('Failed to load survey data:', error);
-        toast.error('Gagal memuat data survey');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    loadData();
+  const loadData = useCallback(async () => {
+    setIsLoading(true);
+    setHasLoadError(false);
+
+    try {
+      const [typesData, questionsData] = await Promise.all([
+        api.survey.getServiceTypes(),
+        api.survey.getQuestions(),
+      ]);
+      setServiceTypes(typesData.filter(t => t.is_active));
+      setQuestions(questionsData.filter(q => q.is_active).sort((a, b) => a.order - b.order));
+    } catch (error) {
+      console.error('Failed to load survey data:', error);
+      setHasLoadError(true);
+      setServiceTypes([]);
+      setQuestions([]);
+      toast.error('Gagal memuat data survey');
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   // Countdown after success
   useEffect(() => {
@@ -113,14 +122,49 @@ export function Survey() {
     }
   }, [isSuccess, navigate]);
 
+  const lowSatisfactionRatings: SatisfactionRating[] = ['tidak_puas', 'sangat_tidak_puas'];
+
+  const isLowSatisfactionRating = (value?: string) => {
+    return value ? lowSatisfactionRatings.includes(value as SatisfactionRating) : false;
+  };
+
   const handleResponseChange = (questionId: number, value: string) => {
-    setFormData(prev => ({
-      ...prev,
-      responses: {
-        ...prev.responses,
-        [questionId]: value,
-      },
-    }));
+    setFormData((prev) => {
+      const previousResponse = prev.responses[questionId];
+      const nextResponse: SurveyQuestionResponse = {
+        answer: value,
+      };
+
+      if (isLowSatisfactionRating(value) && previousResponse?.complaint) {
+        nextResponse.complaint = previousResponse.complaint;
+      }
+
+      return {
+        ...prev,
+        responses: {
+          ...prev.responses,
+          [questionId]: nextResponse,
+        },
+      };
+    });
+  };
+
+  const handleComplaintChange = (questionId: number, complaint: string) => {
+    setFormData((prev) => {
+      const existingResponse = prev.responses[questionId];
+      if (!existingResponse) return prev;
+
+      return {
+        ...prev,
+        responses: {
+          ...prev.responses,
+          [questionId]: {
+            ...existingResponse,
+            complaint,
+          },
+        },
+      };
+    });
   };
 
   const canProceed = () => {
@@ -128,9 +172,17 @@ export function Survey() {
     if (currentStep === 1) return formData.filled_by !== null;
     if (currentStep >= 2 && currentStep < 2 + questions.length) {
       const question = questions[currentStep - 2];
-      if (question.is_required) {
-        return !!formData.responses[question.id];
+      const response = formData.responses[question.id];
+      const hasAnswer = !!response?.answer?.trim();
+
+      if (question.is_required && !hasAnswer) {
+        return false;
       }
+
+      if (question.question_type === 'rating' && isLowSatisfactionRating(response?.answer)) {
+        return !!response?.complaint?.trim();
+      }
+
       return true;
     }
     return true; // Feedback step is optional
@@ -157,8 +209,14 @@ export function Survey() {
     // Check required questions
     const requiredQuestions = questions.filter(q => q.is_required);
     for (const q of requiredQuestions) {
-      if (!formData.responses[q.id]) {
+      const response = formData.responses[q.id];
+      if (!response?.answer?.trim()) {
         toast.error(`Pertanyaan "${q.question_text}" wajib diisi`);
+        return;
+      }
+
+      if (q.question_type === 'rating' && isLowSatisfactionRating(response.answer) && !response.complaint?.trim()) {
+        toast.error(`Alasan untuk pertanyaan "${q.question_text}" wajib diisi`);
         return;
       }
     }
@@ -181,6 +239,8 @@ export function Survey() {
     }
   };
 
+  const hasSurveyMetadata = serviceTypes.length > 0 && questions.length > 0;
+
   // Loading State
   if (isLoading) {
     return (
@@ -190,6 +250,71 @@ export function Survey() {
           <div className="flex flex-col items-center gap-4">
             <Loader2 className="w-12 h-12 animate-spin text-amber-500" />
             <p className="text-xl text-muted-foreground">Memuat survey...</p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (hasLoadError) {
+    return (
+      <div className="min-h-screen flex flex-col bg-gradient-to-br from-amber-50 via-background to-amber-50/30 dark:from-amber-950/20 dark:via-background dark:to-amber-950/10">
+        <Header villageName={settings.villageName} officerName={settings.officerName} logoUrl={settings.logoUrl} />
+        <main className="flex-1 flex items-center justify-center p-4 sm:p-6 md:p-8">
+          <div className="w-full max-w-xl bg-card/80 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl border-0 p-6 sm:p-8 text-center space-y-6">
+            <div className="space-y-2">
+              <div className="w-16 h-16 mx-auto bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center">
+                <Loader2 className="w-8 h-8 text-amber-500" />
+              </div>
+              <h2 className="text-2xl font-bold text-foreground">Survey belum bisa dimuat</h2>
+              <p className="text-muted-foreground">
+                Terjadi kendala saat memuat data survey. Silakan coba lagi atau kembali ke beranda.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Button
+                type="button"
+                size="lg"
+                onClick={loadData}
+                className="gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700"
+              >
+                <Loader2 className="w-4 h-4" />
+                Coba Lagi
+              </Button>
+              <Button type="button" size="lg" variant="outline" onClick={() => navigate('/')} className="gap-2">
+                <Home className="w-4 h-4" />
+                Kembali ke Beranda
+              </Button>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (!hasSurveyMetadata) {
+    return (
+      <div className="min-h-screen flex flex-col bg-gradient-to-br from-amber-50 via-background to-amber-50/30 dark:from-amber-950/20 dark:via-background dark:to-amber-950/10">
+        <Header villageName={settings.villageName} officerName={settings.officerName} logoUrl={settings.logoUrl} />
+        <main className="flex-1 flex items-center justify-center p-4 sm:p-6 md:p-8">
+          <div className="w-full max-w-xl bg-card/80 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl border-0 p-6 sm:p-8 text-center space-y-6">
+            <div className="space-y-2">
+              <div className="w-16 h-16 mx-auto bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center">
+                <Star className="w-8 h-8 text-amber-500" />
+              </div>
+              <h2 className="text-2xl font-bold text-foreground">Survey belum tersedia</h2>
+              <p className="text-muted-foreground">
+                Saat ini belum ada layanan atau pertanyaan survey yang aktif. Silakan kembali lagi nanti.
+              </p>
+            </div>
+
+            <div className="flex justify-center">
+              <Button type="button" size="lg" variant="outline" onClick={() => navigate('/')} className="gap-2">
+                <Home className="w-4 h-4" />
+                Kembali ke Beranda
+              </Button>
+            </div>
           </div>
         </main>
       </div>
@@ -318,7 +443,10 @@ export function Survey() {
     // Question Steps
     if (currentStep >= 2 && currentStep < 2 + questions.length) {
       const question = questions[currentStep - 2];
-      
+      const currentResponse = formData.responses[question.id];
+      const selectedAnswer = currentResponse?.answer || '';
+      const needsComplaint = question.question_type === 'rating' && isLowSatisfactionRating(selectedAnswer);
+
       return (
         <div className="space-y-4 sm:space-y-6">
           <div className="text-center space-y-1 sm:space-y-2">
@@ -336,7 +464,7 @@ export function Survey() {
                   type="button"
                   onClick={() => handleResponseChange(question.id, rating)}
                   className={`p-3 sm:p-4 md:p-6 landscape:p-2 rounded-2xl border-2 text-center transition-all duration-200 ${
-                    formData.responses[question.id] === rating
+                    selectedAnswer === rating
                       ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20 shadow-lg shadow-amber-500/20 scale-105'
                       : 'border-muted hover:border-amber-300 hover:bg-muted/50'
                   }`}
@@ -358,7 +486,7 @@ export function Survey() {
                   type="button"
                   onClick={() => handleResponseChange(question.id, option)}
                   className={`p-6 rounded-2xl border-2 text-left transition-all duration-200 ${
-                    formData.responses[question.id] === option
+                    selectedAnswer === option
                       ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20 shadow-lg shadow-amber-500/20'
                       : 'border-muted hover:border-amber-300 hover:bg-muted/50'
                   }`}
@@ -371,12 +499,31 @@ export function Survey() {
 
           {question.question_type === 'text' && (
             <Textarea
-              value={formData.responses[question.id] || ''}
+              value={selectedAnswer}
               onChange={(e) => handleResponseChange(question.id, e.target.value)}
               placeholder="Tulis jawaban Anda..."
               rows={4}
               className="text-xl p-6 rounded-2xl border-2 resize-none focus:border-amber-500"
             />
+          )}
+
+          {needsComplaint && (
+            <div className="space-y-2">
+              <Label htmlFor={`complaint-${question.id}`} className="text-sm sm:text-base font-medium">
+                Alasan ketidakpuasan <span className="text-red-500">*</span>
+              </Label>
+              <Textarea
+                id={`complaint-${question.id}`}
+                value={currentResponse?.complaint || ''}
+                onChange={(e) => handleComplaintChange(question.id, e.target.value)}
+                placeholder="Mohon jelaskan kendala atau alasan Anda..."
+                rows={4}
+                className="text-base sm:text-lg p-4 rounded-2xl border-2 resize-none focus:border-amber-500"
+              />
+              <p className="text-xs sm:text-sm text-muted-foreground">
+                Kolom ini wajib diisi untuk penilaian tidak puas.
+              </p>
+            </div>
           )}
         </div>
       );

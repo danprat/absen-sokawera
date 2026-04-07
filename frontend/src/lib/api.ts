@@ -628,8 +628,10 @@ export const api = {
     survey: {
       // Service Types Management
       serviceTypes: {
-        list: async (): Promise<BackendServiceType[]> => {
-          const response = await apiClient.get<{ items: BackendServiceType[]; total: number }>('/api/v1/admin/survey/service-types');
+        list: async (includeInactive?: boolean): Promise<BackendServiceType[]> => {
+          const response = await apiClient.get<{ items: BackendServiceType[]; total: number }>('/api/v1/admin/survey/service-types', {
+            params: { include_inactive: includeInactive },
+          });
           return response.data.items;
         },
 
@@ -769,7 +771,7 @@ export const api = {
     submit: async (data: {
       service_type_id: number;
       filled_by: 'sendiri' | 'diwakilkan';
-      responses: Record<number, string>;
+      responses: Record<number, SurveyQuestionResponse>;
       feedback?: string;
     }): Promise<{ message: string; id: number }> => {
       const response = await apiClient.post<{ message: string; id: number }>('/api/v1/survey', data);
@@ -780,6 +782,6 @@ export const api = {
 
 // Import types for API
 import type { BackendGuestBookListResponse, BackendGuestBookMeetingTarget, BackendGuestBookMeetingTargetListResponse } from '@/types/guestbook';
-import type { BackendServiceType, BackendSurveyQuestion, BackendSurveyResponseList, BackendSurveyStats, BackendQuestionStatsResponse } from '@/types/survey';
+import type { BackendServiceType, BackendSurveyQuestion, BackendSurveyResponseList, BackendSurveyStats, BackendQuestionStatsResponse, SurveyQuestionResponse } from '@/types/survey';
 
 export default api;

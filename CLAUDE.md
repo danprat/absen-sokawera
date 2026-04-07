@@ -25,6 +25,19 @@ python3 setup_db.py
 python3 -m uvicorn app.main:app --reload --port 8000
 ```
 
+Jika virtualenv lokal tidak punya executable `python`/`python3` yang bisa dipanggil langsung, backend masih bisa dijalankan dari folder `backend/` dengan Python sistem selama dependency project sudah terpasang:
+
+```bash
+cd backend
+python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Untuk mengecek apakah backend yang aktif sudah memuat schema terbaru setelah restart:
+
+```bash
+curl http://127.0.0.1:8000/openapi.json
+```
+
 Useful backend checks:
 
 ```bash

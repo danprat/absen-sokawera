@@ -29,6 +29,7 @@ from app.schemas.survey import (
     QuestionStatsResponse,
     QuestionStatistics,
     TextFeedbackItem,
+    ComplaintFeedbackItem,
 )
 from app.utils.auth import get_current_admin, require_admin_role
 from app.utils.audit import log_audit
@@ -37,6 +38,31 @@ from app.utils.export_utils import generate_pdf, generate_excel, generate_csv
 from app.utils.cache import cache, SURVEY_STATS_CACHE_KEY
 
 router = APIRouter(prefix="/admin/survey", tags=["Admin - Survey"])
+
+
+VALID_RATINGS = {"sangat_puas", "puas", "cukup_puas", "tidak_puas", "sangat_tidak_puas"}
+LOW_RATINGS = {"tidak_puas", "sangat_tidak_puas"}
+RATING_PRIORITY = {"sangat_puas": 5, "puas": 4, "cukup_puas": 3, "tidak_puas": 2, "sangat_tidak_puas": 1}
+
+
+def extract_answer_value(answer):
+    """Extract answer text from legacy string or structured survey answer."""
+    if isinstance(answer, dict):
+        value = answer.get("answer")
+        return value.strip() if isinstance(value, str) else None
+    return answer.strip() if isinstance(answer, str) else None
+
+
+def extract_complaint_value(answer):
+    """Extract complaint text from structured survey answer."""
+    if not isinstance(answer, dict):
+        return None
+
+    value = answer.get("complaint")
+    if isinstance(value, str):
+        value = value.strip()
+        return value or None
+    return None
 
 
 # ============ Service Types ============
@@ -388,16 +414,19 @@ def list_responses(
 def get_survey_stats(
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
+    service_type_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     admin: Admin = Depends(get_current_admin)
 ):
     """Get survey statistics"""
     query = db.query(SurveyResponse).join(ServiceType)
-    
+
     if start_date:
         query = query.filter(func.date(SurveyResponse.submitted_at) >= start_date)
     if end_date:
         query = query.filter(func.date(SurveyResponse.submitted_at) <= end_date)
+    if service_type_id:
+        query = query.filter(SurveyResponse.service_type_id == service_type_id)
     
     responses = query.all()
     total_responses = len(responses)
@@ -414,13 +443,10 @@ def get_survey_stats(
     by_filled_by = {"sendiri": 0, "diwakilkan": 0}
     by_service_type = {}
     
-    # Rating priority for determining dominant rating per response
-    rating_priority = {"sangat_puas": 5, "puas": 4, "cukup_puas": 3, "tidak_puas": 2, "sangat_tidak_puas": 1}
-    
     for response in responses:
         # Count filled_by
         by_filled_by[response.filled_by.value] += 1
-        
+
         # Count by service type
         st_id = response.service_type_id
         if st_id not in by_service_type:
@@ -430,26 +456,29 @@ def get_survey_stats(
                 "ratings": {"sangat_puas": 0, "puas": 0, "cukup_puas": 0, "tidak_puas": 0, "sangat_tidak_puas": 0}
             }
         by_service_type[st_id]["total"] += 1
-        
+
         # Calculate average/dominant rating for this response
         valid_ratings = []
         for question_id, answer in response.responses.items():
-            if answer in rating_priority:
-                valid_ratings.append(answer)
-        
+            answer_value = extract_answer_value(answer)
+            if answer_value in VALID_RATINGS:
+                valid_ratings.append(answer_value)
+
         if valid_ratings:
             # Calculate average score and map back to rating
-            avg_score = sum(rating_priority[r] for r in valid_ratings) / len(valid_ratings)
-            
+            avg_score = sum(RATING_PRIORITY[r] for r in valid_ratings) / len(valid_ratings)
+
             # Map average score to rating category
-            if avg_score >= 3.5:
+            if avg_score >= 4.5:
                 dominant_rating = "sangat_puas"
-            elif avg_score >= 2.5:
+            elif avg_score >= 3.5:
                 dominant_rating = "puas"
-            elif avg_score >= 1.5:
+            elif avg_score >= 2.5:
                 dominant_rating = "cukup_puas"
-            else:
+            elif avg_score >= 1.5:
                 dominant_rating = "tidak_puas"
+            else:
+                dominant_rating = "sangat_tidak_puas"
             
             rating_distribution[dominant_rating] += 1
             by_service_type[st_id]["ratings"][dominant_rating] += 1
@@ -491,8 +520,8 @@ def get_question_stats(
     if cached:
         return cached
     
-    # Get all active questions
-    questions = db.query(SurveyQuestion).filter(SurveyQuestion.is_active == True).order_by(SurveyQuestion.order).all()
+    # Get all questions, including inactive ones, so historical stats remain visible
+    questions = db.query(SurveyQuestion).order_by(SurveyQuestion.order, SurveyQuestion.id).all()
     
     # Get responses with filters
     query = db.query(SurveyResponse).join(ServiceType)
@@ -507,16 +536,13 @@ def get_question_stats(
     responses = query.all()
     total_responses = len(responses)
     
-    # Valid rating values
-    valid_ratings = {"sangat_puas", "puas", "cukup_puas", "tidak_puas", "sangat_tidak_puas"}
-    
     # Calculate stats for each question
     question_stats = []
-    
+
     for question in questions:
         question_id_str = str(question.id)
         response_count = 0
-        
+
         if question.question_type.value == "rating":
             # Rating question - aggregate distribution
             rating_distribution = {
@@ -526,48 +552,66 @@ def get_question_stats(
                 "tidak_puas": 0,
                 "sangat_tidak_puas": 0
             }
-            
+            complaint_responses = []
+
             for response in responses:
                 if question_id_str in response.responses:
-                    answer = response.responses[question_id_str]
-                    if answer in valid_ratings:
-                        rating_distribution[answer] += 1
+                    raw_answer = response.responses[question_id_str]
+                    answer_value = extract_answer_value(raw_answer)
+                    complaint_value = extract_complaint_value(raw_answer)
+
+                    if answer_value in VALID_RATINGS:
+                        rating_distribution[answer_value] += 1
                         response_count += 1
-            
+
+                        if complaint_value and answer_value in LOW_RATINGS:
+                            complaint_responses.append(ComplaintFeedbackItem(
+                                response_id=response.id,
+                                complaint=complaint_value,
+                                rating=answer_value,
+                                service_type_name=response.service_type.name,
+                                submitted_at=response.submitted_at
+                            ))
+
+            complaint_responses.sort(key=lambda x: x.submitted_at, reverse=True)
+
             question_stats.append(QuestionStatistics(
                 question_id=question.id,
                 question_text=question.question_text,
                 question_type=question.question_type,
                 response_count=response_count,
                 rating_distribution=rating_distribution,
-                text_responses=None
+                text_responses=None,
+                complaint_responses=complaint_responses
             ))
         else:
             # Text question - collect all text responses
             text_responses = []
-            
+
             for response in responses:
                 if question_id_str in response.responses:
-                    answer = response.responses[question_id_str]
-                    if answer and answer.strip():
+                    raw_answer = response.responses[question_id_str]
+                    answer_value = extract_answer_value(raw_answer)
+                    if answer_value:
                         text_responses.append(TextFeedbackItem(
                             response_id=response.id,
-                            answer=answer,
+                            answer=answer_value,
                             service_type_name=response.service_type.name,
                             submitted_at=response.submitted_at
                         ))
                         response_count += 1
-            
+
             # Sort by date descending
             text_responses.sort(key=lambda x: x.submitted_at, reverse=True)
-            
+
             question_stats.append(QuestionStatistics(
                 question_id=question.id,
                 question_text=question.question_text,
                 question_type=question.question_type,
                 response_count=response_count,
                 rating_distribution=None,
-                text_responses=text_responses
+                text_responses=text_responses,
+                complaint_responses=None
             ))
     
     result = QuestionStatsResponse(
@@ -607,7 +651,11 @@ def export_survey_responses(
 
     # Prepare headers
     headers = ["ID", "Jenis Layanan", "Diisi Oleh", "Tanggal"]
-    headers.extend([f"Q{q.id}: {q.question_text[:50]}" for q in questions])
+    for q in questions:
+        base_label = f"Q{q.id}: {q.question_text[:50]}"
+        headers.append(f"{base_label} - Jawaban")
+        if q.question_type.value == "rating":
+            headers.append(f"{base_label} - Keluhan")
     headers.append("Feedback")
 
     # Prepare data as list of lists
@@ -621,7 +669,12 @@ def export_survey_responses(
         ]
         # Add question responses
         for q in questions:
-            row.append(response.responses.get(str(q.id), ""))
+            raw_answer = response.responses.get(str(q.id), "")
+            answer_value = extract_answer_value(raw_answer) or ""
+            complaint_value = extract_complaint_value(raw_answer) or ""
+            row.append(answer_value)
+            if q.question_type.value == "rating":
+                row.append(complaint_value)
         row.append(response.feedback or "")
         data.append(row)
 

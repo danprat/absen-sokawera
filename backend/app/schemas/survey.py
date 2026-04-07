@@ -1,6 +1,6 @@
 """Survey Schemas"""
-from typing import Optional, List, Dict
-from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Union
+from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import datetime
 from enum import Enum
 
@@ -56,6 +56,18 @@ class SurveyQuestionCreate(BaseModel):
     is_required: bool = True
     order: int = 0
 
+    @model_validator(mode="after")
+    def validate_question_type_options(self):
+        if self.question_type == QuestionType.multiple_choice:
+            if not self.options:
+                raise ValueError("Options are required for multiple choice questions")
+            self.options = [option.strip() for option in self.options]
+            if any(not option for option in self.options):
+                raise ValueError("Multiple choice options must be non-empty strings")
+        else:
+            self.options = None
+        return self
+
 
 class SurveyQuestionUpdate(BaseModel):
     """Schema for updating a survey question"""
@@ -65,6 +77,16 @@ class SurveyQuestionUpdate(BaseModel):
     is_required: Optional[bool] = None
     is_active: Optional[bool] = None
     order: Optional[int] = None
+
+    @model_validator(mode="after")
+    def validate_question_type_options(self):
+        if self.question_type in {QuestionType.rating, QuestionType.text}:
+            self.options = None
+        elif self.options is not None:
+            self.options = [option.strip() for option in self.options]
+            if not self.options or any(not option for option in self.options):
+                raise ValueError("Multiple choice options must be a non-empty list of non-empty strings")
+        return self
 
 
 class SurveyQuestionResponse(BaseModel):
@@ -95,11 +117,31 @@ class ReorderQuestionsRequest(BaseModel):
 
 # ============ Survey Response Schemas ============
 
+class StructuredSurveyAnswer(BaseModel):
+    """Schema for structured survey answer values"""
+    answer: str = Field(..., min_length=1)
+    complaint: Optional[str] = None
+
+    @field_validator("complaint", mode="before")
+    @classmethod
+    def normalize_complaint(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
+
+SurveyAnswerInput = Union[str, StructuredSurveyAnswer]
+SurveyAnswerResponse = Union[str, StructuredSurveyAnswer]
+
+
 class SurveySubmit(BaseModel):
     """Schema for submitting a survey response"""
     service_type_id: int
     filled_by: FilledByType
-    responses: Dict[str, str]  # {question_id: answer}
+    responses: Dict[str, SurveyAnswerInput]  # {question_id: answer | {answer, complaint?}}
     feedback: Optional[str] = None
 
 
@@ -109,7 +151,21 @@ class SurveyResponseDetail(BaseModel):
     service_type_id: int
     service_type_name: str
     filled_by: FilledByType
-    responses: Dict[str, str]
+    responses: Dict[str, SurveyAnswerResponse]
+    feedback: Optional[str] = None
+    submitted_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SurveySubmitResponse(BaseModel):
+    """Schema for public survey submit response with normalized answers"""
+    id: int
+    service_type_id: int
+    service_type_name: str
+    filled_by: FilledByType
+    responses: Dict[str, StructuredSurveyAnswer]
     feedback: Optional[str] = None
     submitted_at: datetime
 
@@ -153,6 +209,15 @@ class TextFeedbackItem(BaseModel):
     submitted_at: datetime
 
 
+class ComplaintFeedbackItem(BaseModel):
+    """Schema for low-rating complaint feedback tied to a rating answer"""
+    response_id: int
+    complaint: str
+    rating: str
+    service_type_name: str
+    submitted_at: datetime
+
+
 class QuestionStatistics(BaseModel):
     """Schema for per-question statistics"""
     question_id: int
@@ -161,6 +226,7 @@ class QuestionStatistics(BaseModel):
     response_count: int
     rating_distribution: Optional[Dict[str, int]] = None  # For rating questions
     text_responses: Optional[List[TextFeedbackItem]] = None  # For text questions
+    complaint_responses: Optional[List[ComplaintFeedbackItem]] = None  # For rating questions
 
 
 class QuestionStatsResponse(BaseModel):
