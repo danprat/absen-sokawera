@@ -1,6 +1,7 @@
 from datetime import date
 
 from app.models.daily_schedule import DailyWorkSchedule
+from app.models.holiday import Holiday
 from app.models.work_settings import WorkSettings
 from app.services.attendance import attendance_service
 from app.utils.cache import (
@@ -23,9 +24,10 @@ class DummyQuery:
 
 
 class DummyDB:
-    def __init__(self, schedule=None, work_settings=None):
+    def __init__(self, schedule=None, work_settings=None, holiday=None):
         self.schedule = schedule
         self.work_settings = work_settings
+        self.holiday = holiday
         self.query_calls = []
 
     def query(self, model):
@@ -34,6 +36,8 @@ class DummyDB:
             return DummyQuery(self.schedule)
         if model is WorkSettings:
             return DummyQuery(self.work_settings)
+        if model is Holiday:
+            return DummyQuery(self.holiday)
         raise AssertionError(f"Unexpected model query: {model}")
 
     def add(self, value):
@@ -77,6 +81,20 @@ def test_get_daily_schedule_cache_key_uses_shared_prefix():
         attendance_service.get_daily_schedule_cache_key(2)
         == f"{DAILY_SCHEDULE_CACHE_KEY}:2"
     )
+
+
+
+def test_is_holiday_returns_cached_value_without_querying_holiday_table():
+    cache.clear()
+    check_date = date(2026, 4, 8)
+    cache_key = attendance_service.get_holiday_cache_key(check_date)
+    cache.set(cache_key, True, ttl_seconds=300)
+    db = DummyDB(holiday=None)
+
+    result = attendance_service.is_holiday(db, check_date)
+
+    assert result is True
+    assert Holiday not in db.query_calls
 
 
 
