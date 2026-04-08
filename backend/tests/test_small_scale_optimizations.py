@@ -4,13 +4,16 @@ from app.models.daily_schedule import DailyWorkSchedule
 from app.models.holiday import Holiday
 from app.models.work_settings import WorkSettings
 from app.routers.settings import (
+    create_holiday,
     delete_logo,
+    invalidate_holiday_related_caches,
     invalidate_schedule_related_caches,
     invalidate_settings_related_caches,
     update_schedules,
     update_settings,
 )
 from app.services.attendance import attendance_service
+from app.schemas.holiday import HolidayCreate
 from app.schemas.settings import DailyScheduleBatchUpdate, WorkSettingsUpdate
 from app.utils.cache import (
     cache,
@@ -71,6 +74,25 @@ class SequenceDB(DummyDB):
     def refresh(self, value):
         self.events.append("refresh")
         raise RuntimeError("refresh failed")
+
+
+class HolidayMutationDB(DummyDB):
+    def __init__(self, existing_holiday=None):
+        super().__init__(holiday=existing_holiday)
+        self.added = []
+        self.events = []
+
+    def add(self, value):
+        self.added.append(value)
+        self.holiday = value
+
+    def commit(self):
+        self.events.append("commit")
+        return None
+
+    def refresh(self, value):
+        self.events.append("refresh")
+        return None
 
 
 class QueryList:
@@ -215,6 +237,41 @@ def test_update_settings_invalidates_cache_immediately_after_commit(monkeypatch)
     assert db.events == ["commit", "refresh"]
     assert cache.get(SETTINGS_CACHE_KEY) is None
     assert cache.get(f"{PUBLIC_SETTINGS_CACHE_KEY}:home") is None
+
+
+def test_holiday_mutation_helper_clears_holiday_prefix_entries():
+    cache.clear()
+    cache.set(f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-04-08", True, ttl_seconds=300)
+    cache.set(f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-12-25", True, ttl_seconds=300)
+    cache.set(SETTINGS_CACHE_KEY, {"theme": "desa"}, ttl_seconds=300)
+
+    invalidate_holiday_related_caches()
+
+    assert cache.get(f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-04-08") is None
+    assert cache.get(f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-12-25") is None
+    assert cache.get(SETTINGS_CACHE_KEY) == {"theme": "desa"}
+
+
+
+def test_create_holiday_invalidates_holiday_cache_after_commit(monkeypatch):
+    cache.clear()
+    cache.set(f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-04-08", True, ttl_seconds=300)
+    db = HolidayMutationDB(existing_holiday=None)
+    admin = type("AdminStub", (), {"name": "reviewer"})()
+
+    monkeypatch.setattr("app.routers.settings.log_audit", lambda **kwargs: None)
+
+    holiday = create_holiday(
+        HolidayCreate(name="Libur Nasional", date=date(2026, 4, 8), description="Tes regresi"),
+        db=db,
+        admin=admin,
+    )
+
+    assert holiday.name == "Libur Nasional"
+    assert db.events == ["commit", "refresh"]
+    assert len(db.added) == 1
+    assert cache.get(f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-04-08") is None
+
 
 
 def test_schedules_clears_schedule_and_public_settings_prefixes():

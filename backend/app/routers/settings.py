@@ -23,6 +23,7 @@ from app.services.holiday_service import sync_holidays_from_api
 from app.utils.cache import (
     cache,
     DAILY_SCHEDULE_CACHE_KEY,
+    HOLIDAY_CACHE_KEY_PREFIX,
     PUBLIC_SETTINGS_CACHE_KEY,
     SETTINGS_CACHE_KEY,
 )
@@ -38,6 +39,10 @@ def invalidate_settings_related_caches() -> None:
 def invalidate_schedule_related_caches() -> None:
     cache.invalidate_prefix(f"{DAILY_SCHEDULE_CACHE_KEY}:")
     cache.invalidate_prefix(f"{PUBLIC_SETTINGS_CACHE_KEY}:")
+
+
+def invalidate_holiday_related_caches() -> None:
+    cache.invalidate_prefix(f"{HOLIDAY_CACHE_KEY_PREFIX}:")
 
 
 @router.get("", response_model=WorkSettingsResponse)
@@ -370,6 +375,7 @@ def create_holiday(
     holiday = Holiday(**data.model_dump())
     db.add(holiday)
     db.commit()
+    invalidate_holiday_related_caches()
     db.refresh(holiday)
     
     log_audit(
@@ -415,6 +421,8 @@ def delete_holiday(
         db.delete(holiday)
         db.commit()
 
+    invalidate_holiday_related_caches()
+
 
 @router.post("/holidays/sync", response_model=HolidaySyncResponse)
 async def sync_holidays(
@@ -436,7 +444,8 @@ async def sync_holidays(
             performed_by=admin.name,
             details=stats
         )
-        
+        invalidate_holiday_related_caches()
+
         return HolidaySyncResponse(
             added=stats["added"],
             updated=stats["updated"],
@@ -490,6 +499,7 @@ def restore_holiday(
     
     holiday.is_excluded = False
     db.commit()
+    invalidate_holiday_related_caches()
     db.refresh(holiday)
     
     log_audit(
