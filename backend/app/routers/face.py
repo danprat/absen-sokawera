@@ -15,6 +15,12 @@ router = APIRouter(prefix="/employees", tags=["Face Enrollment"])
 UPLOAD_DIR = "uploads/faces"
 
 
+def refresh_face_embedding_cache(service, db: Session) -> None:
+    service.invalidate_cache()
+    if service.enabled:
+        service.refresh_embedding_cache(db)
+
+
 @router.post("/{employee_id}/face", response_model=FaceUploadResponse)
 async def upload_face(
     employee_id: int,
@@ -73,8 +79,7 @@ async def upload_face(
     db.commit()
     db.refresh(face_embedding)
     
-    # Invalidate cache after adding new face
-    face_recognition_service.invalidate_cache()
+    refresh_face_embedding_cache(face_recognition_service, db)
     
     return FaceUploadResponse(
         id=face_embedding.id,
@@ -124,5 +129,4 @@ def delete_face(
     db.delete(face)
     db.commit()
     
-    # Invalidate cache after deleting face
-    face_recognition_service.invalidate_cache()
+    refresh_face_embedding_cache(face_recognition_service, db)

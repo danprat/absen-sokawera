@@ -3,6 +3,7 @@ from datetime import date, time
 from app.models.daily_schedule import DailyWorkSchedule
 from app.models.holiday import Holiday
 from app.models.work_settings import WorkSettings
+from app.routers.face import refresh_face_embedding_cache
 from app.routers.settings import (
     create_holiday,
     delete_holiday,
@@ -140,6 +141,20 @@ class HolidaySequenceDB(HolidayMutationDB):
 
 class SyncSequenceDB(DummyDB):
     pass
+
+
+class FaceCacheServiceStub:
+    def __init__(self, enabled: bool):
+        self.enabled = enabled
+        self.events = []
+        self.refresh_db = None
+
+    def invalidate_cache(self):
+        self.events.append("invalidate")
+
+    def refresh_embedding_cache(self, db):
+        self.events.append("refresh")
+        self.refresh_db = db
 
 
 def make_schedule(day_of_week: int, is_workday: bool = True):
@@ -437,3 +452,25 @@ def test_delete_logo_invalidates_settings_and_public_caches_after_commit(monkeyp
     assert db.events == ["commit"]
     assert cache.get(SETTINGS_CACHE_KEY) is None
     assert cache.get(f"{PUBLIC_SETTINGS_CACHE_KEY}:home") is None
+
+
+
+def test_refresh_face_cache_invalidates_then_refreshes_for_enabled_service():
+    db = object()
+    service = FaceCacheServiceStub(enabled=True)
+
+    refresh_face_embedding_cache(service, db)
+
+    assert service.events == ["invalidate", "refresh"]
+    assert service.refresh_db is db
+
+
+
+def test_refresh_face_cache_invalidates_without_refresh_for_disabled_service():
+    db = object()
+    service = FaceCacheServiceStub(enabled=False)
+
+    refresh_face_embedding_cache(service, db)
+
+    assert service.events == ["invalidate"]
+    assert service.refresh_db is None
