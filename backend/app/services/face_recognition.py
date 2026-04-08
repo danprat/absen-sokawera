@@ -13,6 +13,7 @@ from typing import Optional, Tuple, Dict, List
 import numpy as np
 from PIL import Image
 from sqlalchemy.orm import Session
+from app.config import get_settings
 from app.models.employee import Employee
 from app.models.face_embedding import FaceEmbedding
 
@@ -25,9 +26,13 @@ except ImportError:
     print("WARNING: face_recognition not installed. Face recognition disabled.")
 
 
+settings = get_settings()
+
+
 class FaceRecognitionService:
     def __init__(self):
         self.enabled = FACE_RECOGNITION_AVAILABLE
+        self.debug_logging = settings.FACE_RECOGNITION_DEBUG_LOGS
         # Tolerance for face matching (lower = more strict)
         # 0.6 is typical, 0.5 is more strict, 0.4 is very strict
         self.tolerance = 0.5
@@ -36,7 +41,11 @@ class FaceRecognitionService:
         self._embedding_cache: Dict[int, List[dict]] = {}  # employee_id -> list of embeddings
         self._cache_version: int = 0
         self._cache_initialized: bool = False
-    
+
+    def _debug(self, message: str) -> None:
+        if self.debug_logging:
+            print(message)
+
     def _load_image(self, image_data: bytes, max_size: int = 640) -> Optional[np.ndarray]:
         """
         Load image from bytes to numpy array (RGB format for face_recognition).
@@ -52,7 +61,7 @@ class FaceRecognitionService:
                 ratio = max_size / max(image.size)
                 new_size = (int(image.width * ratio), int(image.height * ratio))
                 image = image.resize(new_size, Image.LANCZOS)
-                print(f"Image resized from {image.size} to {new_size}")
+                self._debug(f"Image resized from {image.size} to {new_size}")
             
             if image.mode != 'RGB':
                 image = image.convert('RGB')
@@ -97,7 +106,7 @@ class FaceRecognitionService:
             self._cache_initialized = True
             
             total_embeddings = sum(len(v) for v in self._embedding_cache.values())
-            print(f"[Cache] Refreshed: {total_embeddings} embeddings for {len(self._embedding_cache)} employees")
+            self._debug(f"[Cache] Refreshed: {total_embeddings} embeddings for {len(self._embedding_cache)} employees")
             
             return total_embeddings
         except Exception as e:
@@ -107,7 +116,7 @@ class FaceRecognitionService:
     def invalidate_cache(self):
         """Invalidate cache to force refresh on next match."""
         self._cache_initialized = False
-        print("[Cache] Invalidated")
+        self._debug("[Cache] Invalidated")
     
     def detect_face(self, image_data: bytes) -> bool:
         """Detect if there's a face in the image using deep learning."""
@@ -150,14 +159,14 @@ class FaceRecognitionService:
             face_locations = face_recognition.face_locations(image, model=model)
             
             if len(face_locations) == 0:
-                print("No face detected in image")
+                self._debug("No face detected in image")
                 return None
             
             # Get the largest face (by area)
             if len(face_locations) > 1:
                 largest = max(face_locations, key=lambda loc: (loc[2] - loc[0]) * (loc[1] - loc[3]))
                 face_locations = [largest]
-                print(f"Multiple faces detected, using largest one")
+                self._debug("Multiple faces detected, using largest one")
             
             # Generate 128-dimensional face encoding
             face_encodings = face_recognition.face_encodings(
@@ -167,7 +176,7 @@ class FaceRecognitionService:
             )
             
             if len(face_encodings) == 0:
-                print("Could not generate face encoding")
+                self._debug("Could not generate face encoding")
                 return None
             
             # Convert to bytes (128 floats = 512 bytes)
@@ -245,7 +254,7 @@ class FaceRecognitionService:
         # Generate embedding from captured image (with resizing optimization)
         new_embedding_bytes = self.generate_embedding(image_data)
         if new_embedding_bytes is None:
-            print("Failed to generate embedding from captured image")
+            self._debug("Failed to generate embedding from captured image")
             return None, 0.0
         
         new_embedding = np.frombuffer(new_embedding_bytes, dtype=np.float32)
@@ -255,7 +264,7 @@ class FaceRecognitionService:
             self.refresh_embedding_cache(db)
         
         if not self._embedding_cache:
-            print("No embeddings in cache")
+            self._debug("No embeddings in cache")
             return None, 0.0
         
         # === OPTIMIZATION 2: Batch comparison ===
@@ -274,7 +283,7 @@ class FaceRecognitionService:
                 })
         
         if not all_embeddings:
-            print("No valid embeddings to compare")
+            self._debug("No valid embeddings to compare")
             return None, 0.0
         
         # Stack all embeddings into a 2D array for batch processing
@@ -283,8 +292,8 @@ class FaceRecognitionService:
         # Vectorized distance calculation (MUCH faster than loop)
         distances = self._batch_compare(new_embedding, all_embeddings_array)
         similarities = np.maximum(0, 1 - (distances / 1.0))
-        
-        print(f"[Batch] Compared against {len(all_embeddings)} embeddings")
+
+        self._debug(f"[Batch] Compared against {len(all_embeddings)} embeddings")
         
         # Group by employee and find best score per employee
         employee_scores: Dict[int, Tuple[Employee, float, int]] = {}
@@ -306,9 +315,9 @@ class FaceRecognitionService:
                     best_match = employee
         
         if best_match:
-            print(f"Best match: {best_match.name} with score {best_score:.3f}")
+            self._debug(f"Best match: {best_match.name} with score {best_score:.3f}")
         else:
-            print(f"No match found. Best score was {best_score:.3f} (threshold: {threshold})")
+            self._debug(f"No match found. Best score was {best_score:.3f} (threshold: {threshold})")
         
         return best_match, best_score
 

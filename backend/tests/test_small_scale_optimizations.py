@@ -1,8 +1,10 @@
 import asyncio
 from datetime import date, time
 
+from app.config import get_settings
 from app.models.daily_schedule import DailyWorkSchedule
 from app.models.employee import Employee
+from app.services.face_recognition import FaceRecognitionService
 from app.models.face_embedding import FaceEmbedding
 from app.models.holiday import Holiday
 from app.models.work_settings import WorkSettings
@@ -638,3 +640,23 @@ def test_delete_face_refreshes_face_cache_after_commit(monkeypatch):
     assert db.deleted == [face]
     assert db.events == ["commit"]
     assert events == ["refresh_cache"]
+
+
+
+def test_face_recognition_debug_logging_defaults_to_false(monkeypatch):
+    get_settings.cache_clear()
+    monkeypatch.delenv("FACE_RECOGNITION_DEBUG_LOGS", raising=False)
+
+    service = FaceRecognitionService()
+
+    assert service.debug_logging is False
+
+
+
+def test_face_recognition_debug_logging_helper_suppresses_output_when_disabled(capsys):
+    service = FaceRecognitionService()
+
+    service._debug("hidden message")
+
+    captured = capsys.readouterr()
+    assert captured.out == ""

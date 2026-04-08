@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     # Face Recognition
     FACE_RECOGNITION_ENABLED: bool = False
     FACE_RECOGNITION_URL: str = "http://localhost:8001"
+    FACE_RECOGNITION_DEBUG_LOGS: bool = False
     
     @property
     def cors_origins_list(self) -> list[str]:
