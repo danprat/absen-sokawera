@@ -8,10 +8,14 @@ from app.models.attendance import AttendanceLog, AttendanceStatus
 from app.models.holiday import Holiday
 from app.models.work_settings import WorkSettings
 from app.models.daily_schedule import DailyWorkSchedule
-from app.utils.cache import cache, SETTINGS_CACHE_KEY, DAILY_SCHEDULE_CACHE_KEY
+from app.utils.cache import (
+    cache,
+    SETTINGS_CACHE_KEY,
+    DAILY_SCHEDULE_CACHE_KEY,
+    HOLIDAY_CACHE_KEY_PREFIX,
+)
 
 settings = get_settings()
-HOLIDAY_CACHE_KEY = "holiday"
 
 
 class AttendanceService:
@@ -20,7 +24,7 @@ class AttendanceService:
         cached = cache.get(SETTINGS_CACHE_KEY)
         if cached:
             return cached
-        
+
         work_settings = db.query(WorkSettings).first()
         if not work_settings:
             work_settings = WorkSettings()
@@ -30,10 +34,16 @@ class AttendanceService:
 
         cache.set(SETTINGS_CACHE_KEY, work_settings, ttl_seconds=settings.WORK_SETTINGS_CACHE_TTL_SECONDS)
         return work_settings
-    
+
+    def get_daily_schedule_cache_key(self, day_of_week: int) -> str:
+        return f"{DAILY_SCHEDULE_CACHE_KEY}:{day_of_week}"
+
+    def get_holiday_cache_key(self, check_date: date) -> str:
+        return f"{HOLIDAY_CACHE_KEY_PREFIX}:{check_date.isoformat()}"
+
     def is_holiday(self, db: Session, check_date: date) -> bool:
         """Check if the given date is a holiday (excluding holidays marked as is_excluded)."""
-        holiday_cache_key = f"{HOLIDAY_CACHE_KEY}:{check_date.isoformat()}"
+        holiday_cache_key = self.get_holiday_cache_key(check_date)
         cached = cache.get(holiday_cache_key)
         if cached is not None:
             return cached
@@ -60,7 +70,7 @@ class AttendanceService:
     def get_daily_schedule(self, db: Session, check_date: date) -> Optional[DailyWorkSchedule]:
         """Get the work schedule for a specific date."""
         day_of_week = check_date.weekday()
-        cache_key = f"{DAILY_SCHEDULE_CACHE_KEY}:{day_of_week}"
+        cache_key = self.get_daily_schedule_cache_key(day_of_week)
         
         # Check cache first
         cached = cache.get(cache_key)

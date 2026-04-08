@@ -59,4 +59,5 @@ cache = SimpleCache()
 SETTINGS_CACHE_KEY = "work_settings"
 PUBLIC_SETTINGS_CACHE_KEY = "public_settings"
 DAILY_SCHEDULE_CACHE_KEY = "daily_schedule"
+HOLIDAY_CACHE_KEY_PREFIX = "holiday"
 SURVEY_STATS_CACHE_KEY = "survey_stats"

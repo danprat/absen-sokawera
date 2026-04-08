@@ -3,7 +3,12 @@ from datetime import date
 from app.models.daily_schedule import DailyWorkSchedule
 from app.models.work_settings import WorkSettings
 from app.services.attendance import attendance_service
-from app.utils.cache import cache, DAILY_SCHEDULE_CACHE_KEY, SETTINGS_CACHE_KEY
+from app.utils.cache import (
+    cache,
+    DAILY_SCHEDULE_CACHE_KEY,
+    HOLIDAY_CACHE_KEY_PREFIX,
+    SETTINGS_CACHE_KEY,
+)
 
 
 class DummyQuery:
@@ -65,3 +70,18 @@ def test_attendance_cache_ttls_are_tuned_for_small_deployment():
     remaining_seconds = int((expires - expires.now()).total_seconds())
 
     assert remaining_seconds >= 250
+
+
+def test_get_daily_schedule_cache_key_uses_shared_prefix():
+    assert (
+        attendance_service.get_daily_schedule_cache_key(2)
+        == f"{DAILY_SCHEDULE_CACHE_KEY}:2"
+    )
+
+
+
+def test_get_holiday_cache_key_uses_shared_prefix():
+    assert (
+        attendance_service.get_holiday_cache_key(date(2026, 4, 8))
+        == f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-04-08"
+    )
