@@ -1,15 +1,17 @@
-from datetime import date
+from datetime import date, time
 
 from app.models.daily_schedule import DailyWorkSchedule
 from app.models.holiday import Holiday
 from app.models.work_settings import WorkSettings
 from app.routers.settings import (
+    delete_logo,
     invalidate_schedule_related_caches,
     invalidate_settings_related_caches,
+    update_schedules,
     update_settings,
 )
 from app.services.attendance import attendance_service
-from app.schemas.settings import WorkSettingsUpdate
+from app.schemas.settings import DailyScheduleBatchUpdate, WorkSettingsUpdate
 from app.utils.cache import (
     cache,
     DAILY_SCHEDULE_CACHE_KEY,
@@ -69,6 +71,59 @@ class SequenceDB(DummyDB):
     def refresh(self, value):
         self.events.append("refresh")
         raise RuntimeError("refresh failed")
+
+
+class QueryList:
+    def __init__(self, result):
+        self.result = list(result)
+
+    def order_by(self, *args, **kwargs):
+        return self
+
+    def all(self):
+        return list(self.result)
+
+
+class ScheduleSequenceDB(DummyDB):
+    def __init__(self, schedules):
+        super().__init__()
+        self.schedules = list(schedules)
+        self.events = []
+
+    def query(self, model):
+        self.query_calls.append(model)
+        if model is DailyWorkSchedule:
+            return QueryList(self.schedules)
+        raise AssertionError(f"Unexpected model query: {model}")
+
+    def commit(self):
+        self.events.append("commit")
+        return None
+
+
+def make_schedule(day_of_week: int, is_workday: bool = True):
+    return DailyWorkSchedule(
+        day_of_week=day_of_week,
+        is_workday=is_workday,
+        check_in_start=time(8, 0),
+        check_in_end=time(9, 0),
+        check_out_start=time(16, 0),
+    )
+
+
+def build_batch_update():
+    return DailyScheduleBatchUpdate(
+        schedules=[
+            {
+                "day_of_week": day,
+                "is_workday": day < 5,
+                "check_in_start": time(8, 0),
+                "check_in_end": time(9, 0),
+                "check_out_start": time(16, 0),
+            }
+            for day in range(7)
+        ]
+    )
 
 
 def test_is_workday_uses_cached_daily_schedule_result():
@@ -175,3 +230,42 @@ def test_schedules_clears_schedule_and_public_settings_prefixes():
     assert cache.get(f"{DAILY_SCHEDULE_CACHE_KEY}:5") is None
     assert cache.get(f"{PUBLIC_SETTINGS_CACHE_KEY}:home") is None
     assert cache.get(SETTINGS_CACHE_KEY) == {"theme": "desa"}
+
+
+
+def test_update_schedules_invalidates_schedule_and_public_caches_after_commit(monkeypatch):
+    cache.clear()
+    cache.set(f"{DAILY_SCHEDULE_CACHE_KEY}:1", {"is_workday": True}, ttl_seconds=300)
+    cache.set(f"{PUBLIC_SETTINGS_CACHE_KEY}:home", {"logo": "/logo.png"}, ttl_seconds=300)
+    db = ScheduleSequenceDB([make_schedule(day) for day in range(7)])
+    admin = type("AdminStub", (), {"name": "reviewer"})()
+
+    monkeypatch.setattr("app.routers.settings.log_audit", lambda **kwargs: None)
+
+    result = update_schedules(build_batch_update(), db=db, admin=admin)
+
+    assert len(result) == 7
+    assert db.events == ["commit"]
+    assert cache.get(f"{DAILY_SCHEDULE_CACHE_KEY}:1") is None
+    assert cache.get(f"{PUBLIC_SETTINGS_CACHE_KEY}:home") is None
+
+
+
+def test_delete_logo_invalidates_settings_and_public_caches_after_commit(monkeypatch):
+    cache.clear()
+    cache.set(SETTINGS_CACHE_KEY, {"theme": "desa"}, ttl_seconds=300)
+    cache.set(f"{PUBLIC_SETTINGS_CACHE_KEY}:home", {"logo": "/logo.png"}, ttl_seconds=300)
+    settings = WorkSettings(logo_url="/missing-logo.png")
+    db = SequenceDB(work_settings=settings)
+    admin = type("AdminStub", (), {"name": "reviewer"})()
+
+    monkeypatch.setattr("app.routers.settings.log_audit", lambda **kwargs: None)
+    monkeypatch.setattr("app.routers.settings.os.path.exists", lambda path: False)
+
+    response = delete_logo(db=db, admin=admin)
+
+    assert response == {"message": "Logo berhasil dihapus"}
+    assert settings.logo_url is None
+    assert db.events == ["commit"]
+    assert cache.get(SETTINGS_CACHE_KEY) is None
+    assert cache.get(f"{PUBLIC_SETTINGS_CACHE_KEY}:home") is None
