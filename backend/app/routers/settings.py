@@ -20,9 +20,24 @@ from app.schemas.holiday import HolidayCreate, HolidayResponse, HolidayListRespo
 from app.utils.auth import get_current_admin, require_admin_role
 from app.utils.audit import log_audit
 from app.services.holiday_service import sync_holidays_from_api
-from app.utils.cache import cache, SETTINGS_CACHE_KEY, PUBLIC_SETTINGS_CACHE_KEY
+from app.utils.cache import (
+    cache,
+    DAILY_SCHEDULE_CACHE_KEY,
+    PUBLIC_SETTINGS_CACHE_KEY,
+    SETTINGS_CACHE_KEY,
+)
 
 router = APIRouter(prefix="/admin/settings", tags=["Settings"])
+
+
+def invalidate_settings_related_caches() -> None:
+    cache.invalidate(SETTINGS_CACHE_KEY)
+    cache.invalidate_prefix(f"{PUBLIC_SETTINGS_CACHE_KEY}:")
+
+
+def invalidate_schedule_related_caches() -> None:
+    cache.invalidate_prefix(f"{DAILY_SCHEDULE_CACHE_KEY}:")
+    cache.invalidate_prefix(f"{PUBLIC_SETTINGS_CACHE_KEY}:")
 
 
 @router.get("", response_model=WorkSettingsResponse)
@@ -83,9 +98,7 @@ def update_settings(
         details=audit_details
     )
 
-    # Invalidate cache after update
-    cache.invalidate(SETTINGS_CACHE_KEY)
-    cache.invalidate_prefix(PUBLIC_SETTINGS_CACHE_KEY)
+    invalidate_settings_related_caches()
 
     return settings
 
@@ -140,6 +153,7 @@ async def upload_logo(
     logo_url = f"/uploads/logos/{filename}"
     settings.logo_url = logo_url
     db.commit()
+    invalidate_settings_related_caches()
     db.refresh(settings)
 
     # Log audit
@@ -187,6 +201,7 @@ def delete_logo(
     old_logo_url = settings.logo_url
     settings.logo_url = None
     db.commit()
+    invalidate_settings_related_caches()
 
     # Log audit
     log_audit(
@@ -259,6 +274,7 @@ async def upload_background(
     background_url = f"/uploads/backgrounds/{filename}"
     settings.background_url = background_url
     db.commit()
+    invalidate_settings_related_caches()
     db.refresh(settings)
 
     # Log audit
@@ -306,6 +322,7 @@ def delete_background(
     old_background_url = settings.background_url
     settings.background_url = None
     db.commit()
+    invalidate_settings_related_caches()
 
     # Log audit
     log_audit(
@@ -565,6 +582,7 @@ def update_schedules(
             })
 
     db.commit()
+    invalidate_schedule_related_caches()
 
     # Log audit for batch update
     log_audit(

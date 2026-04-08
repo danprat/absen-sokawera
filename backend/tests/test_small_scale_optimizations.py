@@ -3,11 +3,16 @@ from datetime import date
 from app.models.daily_schedule import DailyWorkSchedule
 from app.models.holiday import Holiday
 from app.models.work_settings import WorkSettings
+from app.routers.settings import (
+    invalidate_schedule_related_caches,
+    invalidate_settings_related_caches,
+)
 from app.services.attendance import attendance_service
 from app.utils.cache import (
     cache,
     DAILY_SCHEDULE_CACHE_KEY,
     HOLIDAY_CACHE_KEY_PREFIX,
+    PUBLIC_SETTINGS_CACHE_KEY,
     SETTINGS_CACHE_KEY,
 )
 
@@ -103,3 +108,33 @@ def test_get_holiday_cache_key_uses_shared_prefix():
         attendance_service.get_holiday_cache_key(date(2026, 4, 8))
         == f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-04-08"
     )
+
+
+def test_settings_clears_settings_and_public_settings_prefix():
+    cache.clear()
+    cache.set(SETTINGS_CACHE_KEY, {"theme": "desa"}, ttl_seconds=300)
+    cache.set(f"{PUBLIC_SETTINGS_CACHE_KEY}:home", {"logo": "/logo.png"}, ttl_seconds=300)
+    cache.set(f"{PUBLIC_SETTINGS_CACHE_KEY}:guestbook", {"logo": "/logo.png"}, ttl_seconds=300)
+    cache.set(f"{DAILY_SCHEDULE_CACHE_KEY}:1", {"is_workday": True}, ttl_seconds=300)
+
+    invalidate_settings_related_caches()
+
+    assert cache.get(SETTINGS_CACHE_KEY) is None
+    assert cache.get(f"{PUBLIC_SETTINGS_CACHE_KEY}:home") is None
+    assert cache.get(f"{PUBLIC_SETTINGS_CACHE_KEY}:guestbook") is None
+    assert cache.get(f"{DAILY_SCHEDULE_CACHE_KEY}:1") == {"is_workday": True}
+
+
+def test_schedules_clears_schedule_and_public_settings_prefixes():
+    cache.clear()
+    cache.set(f"{DAILY_SCHEDULE_CACHE_KEY}:1", {"is_workday": True}, ttl_seconds=300)
+    cache.set(f"{DAILY_SCHEDULE_CACHE_KEY}:5", {"is_workday": False}, ttl_seconds=300)
+    cache.set(f"{PUBLIC_SETTINGS_CACHE_KEY}:home", {"logo": "/logo.png"}, ttl_seconds=300)
+    cache.set(SETTINGS_CACHE_KEY, {"theme": "desa"}, ttl_seconds=300)
+
+    invalidate_schedule_related_caches()
+
+    assert cache.get(f"{DAILY_SCHEDULE_CACHE_KEY}:1") is None
+    assert cache.get(f"{DAILY_SCHEDULE_CACHE_KEY}:5") is None
+    assert cache.get(f"{PUBLIC_SETTINGS_CACHE_KEY}:home") is None
+    assert cache.get(SETTINGS_CACHE_KEY) == {"theme": "desa"}
