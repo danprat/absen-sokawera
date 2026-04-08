@@ -78,6 +78,7 @@ def update_settings(
         setattr(settings, field, value)
 
     db.commit()
+    invalidate_settings_related_caches()
     db.refresh(settings)
 
     # Convert time objects to strings for JSON serialization in audit log
@@ -97,8 +98,6 @@ def update_settings(
         performed_by=admin.name,
         details=audit_details
     )
-
-    invalidate_settings_related_caches()
 
     return settings
 

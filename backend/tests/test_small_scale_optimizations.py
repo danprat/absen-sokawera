@@ -6,8 +6,10 @@ from app.models.work_settings import WorkSettings
 from app.routers.settings import (
     invalidate_schedule_related_caches,
     invalidate_settings_related_caches,
+    update_settings,
 )
 from app.services.attendance import attendance_service
+from app.schemas.settings import WorkSettingsUpdate
 from app.utils.cache import (
     cache,
     DAILY_SCHEDULE_CACHE_KEY,
@@ -53,6 +55,20 @@ class DummyDB:
 
     def refresh(self, value):
         return None
+
+
+class SequenceDB(DummyDB):
+    def __init__(self, work_settings=None):
+        super().__init__(work_settings=work_settings)
+        self.events = []
+
+    def commit(self):
+        self.events.append("commit")
+        return None
+
+    def refresh(self, value):
+        self.events.append("refresh")
+        raise RuntimeError("refresh failed")
 
 
 def test_is_workday_uses_cached_daily_schedule_result():
@@ -123,6 +139,27 @@ def test_settings_clears_settings_and_public_settings_prefix():
     assert cache.get(f"{PUBLIC_SETTINGS_CACHE_KEY}:home") is None
     assert cache.get(f"{PUBLIC_SETTINGS_CACHE_KEY}:guestbook") is None
     assert cache.get(f"{DAILY_SCHEDULE_CACHE_KEY}:1") == {"is_workday": True}
+
+
+def test_update_settings_invalidates_cache_immediately_after_commit(monkeypatch):
+    cache.clear()
+    cache.set(SETTINGS_CACHE_KEY, {"theme": "desa"}, ttl_seconds=300)
+    cache.set(f"{PUBLIC_SETTINGS_CACHE_KEY}:home", {"logo": "/logo.png"}, ttl_seconds=300)
+    db = SequenceDB(work_settings=WorkSettings())
+    admin = type("AdminStub", (), {"name": "reviewer"})()
+
+    monkeypatch.setattr("app.routers.settings.log_audit", lambda **kwargs: None)
+
+    try:
+        update_settings(WorkSettingsUpdate(village_name="Desa Maju"), db=db, admin=admin)
+    except RuntimeError as exc:
+        assert str(exc) == "refresh failed"
+    else:
+        raise AssertionError("update_settings should surface refresh failure in this regression test")
+
+    assert db.events == ["commit", "refresh"]
+    assert cache.get(SETTINGS_CACHE_KEY) is None
+    assert cache.get(f"{PUBLIC_SETTINGS_CACHE_KEY}:home") is None
 
 
 def test_schedules_clears_schedule_and_public_settings_prefixes():
