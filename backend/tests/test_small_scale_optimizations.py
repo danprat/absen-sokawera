@@ -1,9 +1,12 @@
+import asyncio
 from datetime import date, time
 
 from app.models.daily_schedule import DailyWorkSchedule
+from app.models.employee import Employee
+from app.models.face_embedding import FaceEmbedding
 from app.models.holiday import Holiday
 from app.models.work_settings import WorkSettings
-from app.routers.face import refresh_face_embedding_cache
+from app.routers.face import delete_face, refresh_face_embedding_cache, upload_face
 from app.routers.settings import (
     create_holiday,
     delete_holiday,
@@ -155,6 +158,110 @@ class FaceCacheServiceStub:
     def refresh_embedding_cache(self, db):
         self.events.append("refresh")
         self.refresh_db = db
+
+
+class UploadFaceEmployeeQuery:
+    def __init__(self, employee):
+        self.employee = employee
+
+    def filter(self, *args, **kwargs):
+        return self
+
+    def first(self):
+        return self.employee
+
+
+class UploadFaceCountQuery:
+    def __init__(self, count_result):
+        self.count_result = count_result
+
+    def filter(self, *args, **kwargs):
+        return self
+
+    def count(self):
+        return self.count_result
+
+
+class UploadFaceDB:
+    def __init__(self, employee, existing_count=0):
+        self.employee = employee
+        self.existing_count = existing_count
+        self.added = []
+        self.events = []
+
+    def query(self, model):
+        if model is Employee:
+            return UploadFaceEmployeeQuery(self.employee)
+        if model is FaceEmbedding:
+            return UploadFaceCountQuery(self.existing_count)
+        raise AssertionError(f"Unexpected model query: {model}")
+
+    def add(self, value):
+        self.added.append(value)
+
+    def commit(self):
+        self.events.append("commit")
+        return None
+
+    def refresh(self, value):
+        self.events.append("refresh")
+        value.id = 99
+        return None
+
+
+class DeleteFaceQuery:
+    def __init__(self, face):
+        self.face = face
+
+    def filter(self, *args, **kwargs):
+        return self
+
+    def first(self):
+        return self.face
+
+
+class DeleteFaceDB:
+    def __init__(self, face):
+        self.face = face
+        self.deleted = []
+        self.events = []
+
+    def query(self, model):
+        if model is FaceEmbedding:
+            return DeleteFaceQuery(self.face)
+        raise AssertionError(f"Unexpected model query: {model}")
+
+    def delete(self, value):
+        self.deleted.append(value)
+
+    def commit(self):
+        self.events.append("commit")
+        return None
+
+
+class UploadFileStub:
+    def __init__(self, content_type="image/jpeg", filename="face.jpg", data=b"image-bytes"):
+        self.content_type = content_type
+        self.filename = filename
+        self._data = data
+
+    async def read(self):
+        return self._data
+
+
+class FileWriterStub:
+    def __init__(self, events):
+        self.events = events
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return None
+
+    def write(self, data):
+        self.events.append("write")
+        self.data = data
 
 
 def make_schedule(day_of_week: int, is_workday: bool = True):
@@ -474,3 +581,60 @@ def test_refresh_face_cache_invalidates_without_refresh_for_disabled_service():
 
     assert service.events == ["invalidate"]
     assert service.refresh_db is None
+
+
+
+def test_upload_face_refreshes_face_cache_after_commit(monkeypatch):
+    db = UploadFaceDB(employee=Employee(id=5), existing_count=0)
+    file = UploadFileStub()
+    admin = type("AdminStub", (), {"name": "reviewer"})()
+    events = []
+
+    monkeypatch.setattr("app.routers.face.face_recognition_service.detect_face", lambda image_data: True)
+    monkeypatch.setattr(
+        "app.routers.face.face_recognition_service.generate_embedding",
+        lambda image_data, use_cnn, num_jitters: "embedding-vector",
+    )
+    monkeypatch.setattr("app.routers.face.os.makedirs", lambda path, exist_ok: None)
+    monkeypatch.setattr("app.routers.face.uuid.uuid4", lambda: "fixed-upload-id")
+    monkeypatch.setattr("builtins.open", lambda *args, **kwargs: FileWriterStub(events))
+
+    def record_refresh(service, passed_db):
+        events.append("refresh_cache")
+        assert passed_db is db
+        assert db.events == ["commit", "refresh"]
+
+    monkeypatch.setattr("app.routers.face.refresh_face_embedding_cache", record_refresh)
+
+    response = asyncio.run(upload_face(employee_id=5, file=file, db=db, admin=admin))
+
+    assert response.id == 99
+    assert response.photo_url == "/uploads/faces/fixed-upload-id.jpg"
+    assert db.events == ["commit", "refresh"]
+    assert events == ["write", "refresh_cache"]
+    assert len(db.added) == 1
+    assert db.added[0].embedding == "embedding-vector"
+    assert db.added[0].is_primary is True
+
+
+
+def test_delete_face_refreshes_face_cache_after_commit(monkeypatch):
+    face = FaceEmbedding(id=8, employee_id=5, photo_url="/uploads/faces/face.jpg")
+    db = DeleteFaceDB(face=face)
+    admin = type("AdminStub", (), {"name": "reviewer"})()
+    events = []
+
+    monkeypatch.setattr("app.routers.face.os.path.exists", lambda path: False)
+
+    def record_refresh(service, passed_db):
+        events.append("refresh_cache")
+        assert passed_db is db
+        assert db.events == ["commit"]
+
+    monkeypatch.setattr("app.routers.face.refresh_face_embedding_cache", record_refresh)
+
+    delete_face(employee_id=5, face_id=8, db=db, admin=admin)
+
+    assert db.deleted == [face]
+    assert db.events == ["commit"]
+    assert events == ["refresh_cache"]
