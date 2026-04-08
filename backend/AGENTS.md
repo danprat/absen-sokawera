@@ -25,7 +25,7 @@ alembic revision --autogenerate -m "description"
 alembic upgrade head
 ```
 
-Jika virtualenv lokal tidak menyediakan executable `python`/`python3` yang bisa dipanggil langsung dari `venv/bin`, jalankan backend dari folder `backend/` memakai Python sistem yang sudah punya dependency project:
+Jika virtualenv lokal tidak menyediakan executable `python`/`python3` yang bisa dipanggil langsung dari `venv/bin`, atau interpreter di `venv/bin` belum memiliki dependency seperti `uvicorn`, jalankan backend dari folder `backend/` memakai Python sistem yang sudah punya dependency project:
 
 ```bash
 cd backend

@@ -25,7 +25,7 @@ python3 setup_db.py
 python3 -m uvicorn app.main:app --reload --port 8000
 ```
 
-Jika virtualenv lokal tidak punya executable `python`/`python3` yang bisa dipanggil langsung, backend masih bisa dijalankan dari folder `backend/` dengan Python sistem selama dependency project sudah terpasang:
+Jika virtualenv lokal tidak punya dependency yang dibutuhkan saat menjalankan `uvicorn` dari `venv/bin/python` atau executable `python`/`python3` di dalam venv tidak bisa dipanggil langsung, jalankan backend dari folder `backend/` dengan Python sistem selama dependency project sudah terpasang:
 
 ```bash
 cd backend
@@ -51,7 +51,7 @@ python3 -m uvicorn app.main:app --port 8000
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev -- --host 127.0.0.1 --port 8080
 npm run build
 npm run lint
 npm run preview

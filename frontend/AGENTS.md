@@ -8,8 +8,8 @@ React 18 + TypeScript frontend with Vite, shadcn/ui components, and TanStack Que
 # From tap-to-attend/ directory
 npm install
 
-# Start dev server (http://localhost:8080)
-npm run dev
+# Start dev server (http://127.0.0.1:8080)
+npm run dev -- --host 127.0.0.1 --port 8080
 
 # Build for production
 npm run build
@@ -170,7 +170,7 @@ VITE_API_URL=http://localhost:8000
 
 ## Development Workflow
 1. Backend must be running on port 8000
-2. Frontend dev server on port 8080
+2. Frontend dev server on port 8080 at http://127.0.0.1:8080
 3. Hot reload enabled via Vite
 4. API calls proxied to backend (no CORS issues in dev)
 5. Browser DevTools → Network tab for debugging API calls
