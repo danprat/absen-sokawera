@@ -5,10 +5,13 @@ from app.models.holiday import Holiday
 from app.models.work_settings import WorkSettings
 from app.routers.settings import (
     create_holiday,
+    delete_holiday,
     delete_logo,
     invalidate_holiday_related_caches,
     invalidate_schedule_related_caches,
     invalidate_settings_related_caches,
+    restore_holiday,
+    sync_holidays,
     update_schedules,
     update_settings,
 )
@@ -80,11 +83,17 @@ class HolidayMutationDB(DummyDB):
     def __init__(self, existing_holiday=None):
         super().__init__(holiday=existing_holiday)
         self.added = []
+        self.deleted = []
         self.events = []
 
     def add(self, value):
         self.added.append(value)
         self.holiday = value
+
+    def delete(self, value):
+        self.deleted.append(value)
+        if self.holiday is value:
+            self.holiday = None
 
     def commit(self):
         self.events.append("commit")
@@ -121,6 +130,16 @@ class ScheduleSequenceDB(DummyDB):
     def commit(self):
         self.events.append("commit")
         return None
+
+
+class HolidaySequenceDB(HolidayMutationDB):
+    def refresh(self, value):
+        self.events.append("refresh")
+        raise RuntimeError("refresh failed")
+
+
+class SyncSequenceDB(DummyDB):
+    pass
 
 
 def make_schedule(day_of_week: int, is_workday: bool = True):
@@ -271,6 +290,98 @@ def test_create_holiday_invalidates_holiday_cache_after_commit(monkeypatch):
     assert db.events == ["commit", "refresh"]
     assert len(db.added) == 1
     assert cache.get(f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-04-08") is None
+
+
+
+def test_delete_holiday_invalidates_holiday_cache_after_manual_delete_commit(monkeypatch):
+    cache.clear()
+    cache.set(f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-04-08", True, ttl_seconds=300)
+    holiday = Holiday(id=7, name="Libur Manual", date=date(2026, 4, 8), is_auto=False)
+    db = HolidayMutationDB(existing_holiday=holiday)
+    admin = type("AdminStub", (), {"name": "reviewer"})()
+
+    monkeypatch.setattr("app.routers.settings.log_audit", lambda **kwargs: None)
+
+    delete_holiday(holiday_id=holiday.id, db=db, admin=admin)
+
+    assert db.deleted == [holiday]
+    assert db.events == ["commit"]
+    assert cache.get(f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-04-08") is None
+
+
+
+def test_delete_holiday_invalidates_holiday_cache_after_excluding_auto_holiday(monkeypatch):
+    cache.clear()
+    cache.set(f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-12-25", True, ttl_seconds=300)
+    holiday = Holiday(id=9, name="Libur API", date=date(2026, 12, 25), is_auto=True, is_excluded=False)
+    db = HolidayMutationDB(existing_holiday=holiday)
+    admin = type("AdminStub", (), {"name": "reviewer"})()
+
+    monkeypatch.setattr("app.routers.settings.log_audit", lambda **kwargs: None)
+
+    delete_holiday(holiday_id=holiday.id, db=db, admin=admin)
+
+    assert holiday.is_excluded is True
+    assert db.deleted == []
+    assert db.events == ["commit"]
+    assert cache.get(f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-12-25") is None
+
+
+
+def test_restore_holiday_invalidates_holiday_cache_after_commit_before_refresh(monkeypatch):
+    cache.clear()
+    cache.set(f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-05-01", True, ttl_seconds=300)
+    holiday = Holiday(id=11, name="Hari Buruh", date=date(2026, 5, 1), is_excluded=True)
+    db = HolidaySequenceDB(existing_holiday=holiday)
+    admin = type("AdminStub", (), {"name": "reviewer"})()
+
+    monkeypatch.setattr("app.routers.settings.log_audit", lambda **kwargs: None)
+
+    try:
+        restore_holiday(holiday_id=holiday.id, db=db, admin=admin)
+    except RuntimeError as exc:
+        assert str(exc) == "refresh failed"
+    else:
+        raise AssertionError("restore_holiday should surface refresh failure in this regression test")
+
+    assert holiday.is_excluded is False
+    assert db.events == ["commit", "refresh"]
+    assert cache.get(f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-05-01") is None
+
+
+
+def test_sync_holidays_invalidates_holiday_cache_before_audit_logging(monkeypatch):
+    cache.clear()
+    cache.set(f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-01-01", True, ttl_seconds=300)
+    db = SyncSequenceDB()
+    admin = type("AdminStub", (), {"name": "reviewer"})()
+    events = []
+
+    async def fake_sync_holidays_from_api(passed_db, target_year):
+        assert passed_db is db
+        assert target_year == 2026
+        events.append("service")
+        return {"added": 1, "updated": 2, "skipped": 3}
+
+    def fake_invalidate_holiday_related_caches():
+        events.append("invalidate")
+        cache.invalidate_prefix(f"{HOLIDAY_CACHE_KEY_PREFIX}:")
+
+    def fake_log_audit(**kwargs):
+        events.append("audit")
+        assert cache.get(f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-01-01") is None
+
+    monkeypatch.setattr("app.routers.settings.sync_holidays_from_api", fake_sync_holidays_from_api)
+    monkeypatch.setattr("app.routers.settings.invalidate_holiday_related_caches", fake_invalidate_holiday_related_caches)
+    monkeypatch.setattr("app.routers.settings.log_audit", fake_log_audit)
+
+    response = __import__("asyncio").run(sync_holidays(year=2026, db=db, admin=admin))
+
+    assert response.added == 1
+    assert response.updated == 2
+    assert response.skipped == 3
+    assert events == ["service", "invalidate", "audit"]
+    assert cache.get(f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-01-01") is None
 
 
 

@@ -434,7 +434,8 @@ async def sync_holidays(
     try:
         target_year = year or datetime.now().year
         stats = await sync_holidays_from_api(db, target_year)
-        
+        invalidate_holiday_related_caches()
+
         log_audit(
             db=db,
             action=AuditAction.CREATE,
@@ -444,7 +445,6 @@ async def sync_holidays(
             performed_by=admin.name,
             details=stats
         )
-        invalidate_holiday_related_caches()
 
         return HolidaySyncResponse(
             added=stats["added"],
