@@ -141,7 +141,7 @@ DATABASE_URL=mysql+pymysql://absen_user:PASSWORD_KUAT_KAMU@127.0.0.1:3306/absen_
 SECRET_KEY=GANTI_DENGAN_STRING_ACAK_MINIMAL_32_KARAKTER
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
-CORS_ORIGINS=https://absen-desa.pages.dev,https://absen.desamu.id
+CORS_ORIGINS=https://absen-desa-sokawera.pages.dev,https://absen.desamu.id
 DEBUG=False
 AUTO_CREATE_SCHEMA=True
 PRELOAD_FACE_EMBEDDINGS=False
@@ -547,7 +547,7 @@ Biasanya berarti Nginx bisa diakses, tetapi backend di `127.0.0.1:8000` tidak be
 Pastikan `CORS_ORIGINS` di `.env` berisi domain frontend yang benar, misalnya:
 
 ```env
-CORS_ORIGINS=https://absen-desa.pages.dev,https://absen.desamu.id
+CORS_ORIGINS=https://absen-desa-sokawera.pages.dev,https://absen.desamu.id
 ```
 
 Lalu restart backend:

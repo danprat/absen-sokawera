@@ -65,6 +65,11 @@ def extract_complaint_value(answer):
     return None
 
 
+def invalidate_survey_stats_caches() -> None:
+    """Remove cached survey statistics that depend on question definitions."""
+    cache.invalidate_prefix(f"{SURVEY_STATS_CACHE_KEY}:questions:")
+
+
 # ============ Service Types ============
 
 @router.get("/service-types", response_model=ServiceTypeListResponse)
@@ -250,6 +255,7 @@ def create_question(
     )
     db.add(question)
     db.commit()
+    invalidate_survey_stats_caches()
     db.refresh(question)
     
     log_audit(
@@ -285,8 +291,9 @@ def update_question(
     
     for key, value in update_data.items():
         setattr(question, key, value)
-    
+
     db.commit()
+    invalidate_survey_stats_caches()
     db.refresh(question)
     
     log_audit(
@@ -313,8 +320,9 @@ def reorder_questions(
         db.query(SurveyQuestion)\
             .filter(SurveyQuestion.id == question_id)\
             .update({"order": index + 1})
-    
+
     db.commit()
+    invalidate_survey_stats_caches()
     
     log_audit(
         db=db,
@@ -356,6 +364,7 @@ def delete_question(
     
     db.delete(question)
     db.commit()
+    invalidate_survey_stats_caches()
     return None
 
 

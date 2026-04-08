@@ -473,6 +473,14 @@ export function AdminSurvey() {
     }
   };
 
+  const refreshQuestionViews = async () => {
+    await fetchQuestions();
+
+    if (activeTab === 'laporan' && !hasInvalidDateRange) {
+      await fetchQuestionStats();
+    }
+  };
+
   useEffect(() => {
     fetchQuestions();
     fetchServiceTypes();
@@ -562,7 +570,7 @@ export function AdminSurvey() {
       setIsQuestionDialogOpen(false);
       setEditingQuestion(null);
       setNewQuestion({ question_text: '', question_type: 'rating', is_required: true });
-      fetchQuestions();
+      await refreshQuestionViews();
     } catch (error) {
       console.error('Failed to save question:', error);
       toast.error('Gagal menyimpan pertanyaan');
@@ -575,7 +583,7 @@ export function AdminSurvey() {
         is_active: !question.is_active,
       });
       toast.success(question.is_active ? 'Pertanyaan dinonaktifkan' : 'Pertanyaan diaktifkan');
-      fetchQuestions();
+      await refreshQuestionViews();
     } catch (error) {
       console.error('Failed to toggle question:', error);
       toast.error('Gagal mengubah status pertanyaan');
@@ -586,7 +594,7 @@ export function AdminSurvey() {
     try {
       await api.admin.survey.questions.delete(id);
       toast.success('Pertanyaan berhasil dihapus');
-      fetchQuestions();
+      await refreshQuestionViews();
     } catch (error) {
       console.error('Failed to delete question:', error);
       toast.error('Gagal menghapus pertanyaan');

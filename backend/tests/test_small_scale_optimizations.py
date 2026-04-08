@@ -7,7 +7,9 @@ from app.models.employee import Employee
 from app.services.face_recognition import FaceRecognitionService, face_recognition_service
 from app.models.face_embedding import FaceEmbedding
 from app.models.holiday import Holiday
+from app.models.survey import SurveyQuestion, QuestionType as SurveyQuestionType
 from app.models.work_settings import WorkSettings
+from app.routers.admin_survey import create_question, delete_question, reorder_questions, update_question
 from app.routers.face import delete_face, refresh_face_embedding_cache, upload_face
 from app.routers.settings import (
     create_holiday,
@@ -24,12 +26,14 @@ from app.routers.settings import (
 from app.services.attendance import attendance_service
 from app.schemas.holiday import HolidayCreate
 from app.schemas.settings import DailyScheduleBatchUpdate, WorkSettingsUpdate
+from app.schemas.survey import ReorderQuestionsRequest, SurveyQuestionCreate, SurveyQuestionUpdate
 from app.utils.cache import (
     cache,
     DAILY_SCHEDULE_CACHE_KEY,
     HOLIDAY_CACHE_KEY_PREFIX,
     PUBLIC_SETTINGS_CACHE_KEY,
     SETTINGS_CACHE_KEY,
+    SURVEY_STATS_CACHE_KEY,
 )
 
 
@@ -238,6 +242,59 @@ class DeleteFaceDB:
 
     def commit(self):
         self.events.append("commit")
+        return None
+
+
+class SurveyQuestionQuery:
+    def __init__(self, question=None, max_order=0):
+        self.question = question
+        self.max_order = max_order
+        self.updated_orders = []
+
+    def filter(self, *args, **kwargs):
+        return self
+
+    def first(self):
+        return self.question
+
+    def scalar(self):
+        return self.max_order
+
+    def update(self, values):
+        self.updated_orders.append(values)
+        return 1
+
+
+class SurveyQuestionMutationDB:
+    def __init__(self, question=None, max_order=0):
+        self.question = question
+        self.max_order = max_order
+        self.added = []
+        self.deleted = []
+        self.events = []
+        self.last_query = None
+
+    def query(self, model):
+        if model is SurveyQuestion or getattr(model, "name", None) == "max":
+            self.last_query = SurveyQuestionQuery(question=self.question, max_order=self.max_order)
+            return self.last_query
+        raise AssertionError(f"Unexpected model query: {model}")
+
+    def add(self, value):
+        self.added.append(value)
+        self.question = value
+
+    def delete(self, value):
+        self.deleted.append(value)
+
+    def commit(self):
+        self.events.append("commit")
+        return None
+
+    def refresh(self, value):
+        self.events.append("refresh")
+        if getattr(value, "id", None) is None:
+            value.id = 42
         return None
 
 
@@ -640,6 +697,105 @@ def test_delete_face_refreshes_face_cache_after_commit(monkeypatch):
     assert db.deleted == [face]
     assert db.events == ["commit"]
     assert events == ["refresh_cache"]
+
+
+
+def test_create_question_invalidates_survey_stats_cache_after_commit(monkeypatch):
+    cache.clear()
+    cache.set(f"{SURVEY_STATS_CACHE_KEY}:questions:cached", {"questions": []}, ttl_seconds=300)
+    cache.set(f"{SURVEY_STATS_CACHE_KEY}:summary:cached", {"total": 1}, ttl_seconds=300)
+    db = SurveyQuestionMutationDB(max_order=3)
+    admin = type("AdminStub", (), {"username": "reviewer"})()
+
+    monkeypatch.setattr("app.routers.admin_survey.log_audit", lambda **kwargs: None)
+
+    question = create_question(
+        SurveyQuestionCreate(
+            question_text="Apakah pertanyaan baru langsung muncul?",
+            question_type=SurveyQuestionType.text,
+            is_required=True,
+        ),
+        db=db,
+        admin=admin,
+    )
+
+    assert question.id == 42
+    assert db.events == ["commit", "refresh"]
+    assert cache.get(f"{SURVEY_STATS_CACHE_KEY}:questions:cached") is None
+    assert cache.get(f"{SURVEY_STATS_CACHE_KEY}:summary:cached") == {"total": 1}
+
+
+
+def test_update_question_invalidates_survey_stats_cache_after_commit(monkeypatch):
+    cache.clear()
+    cache.set(f"{SURVEY_STATS_CACHE_KEY}:questions:cached", {"questions": []}, ttl_seconds=300)
+    question = SurveyQuestion(
+        id=9,
+        question_text="Pertanyaan lama",
+        question_type=SurveyQuestionType.rating,
+        is_required=True,
+        is_active=True,
+        order=1,
+    )
+    db = SurveyQuestionMutationDB(question=question)
+    admin = type("AdminStub", (), {"username": "reviewer"})()
+
+    monkeypatch.setattr("app.routers.admin_survey.log_audit", lambda **kwargs: None)
+
+    result = update_question(
+        question_id=9,
+        data=SurveyQuestionUpdate(question_text="Pertanyaan baru"),
+        db=db,
+        admin=admin,
+    )
+
+    assert result.question_text == "Pertanyaan baru"
+    assert db.events == ["commit", "refresh"]
+    assert cache.get(f"{SURVEY_STATS_CACHE_KEY}:questions:cached") is None
+
+
+
+def test_reorder_questions_invalidates_survey_stats_cache_after_commit(monkeypatch):
+    cache.clear()
+    cache.set(f"{SURVEY_STATS_CACHE_KEY}:questions:cached", {"questions": []}, ttl_seconds=300)
+    db = SurveyQuestionMutationDB()
+    admin = type("AdminStub", (), {"username": "reviewer"})()
+
+    monkeypatch.setattr("app.routers.admin_survey.log_audit", lambda **kwargs: None)
+
+    response = reorder_questions(
+        ReorderQuestionsRequest(question_ids=[5, 3, 8]),
+        db=db,
+        admin=admin,
+    )
+
+    assert response == {"message": "Questions reordered successfully"}
+    assert db.events == ["commit"]
+    assert cache.get(f"{SURVEY_STATS_CACHE_KEY}:questions:cached") is None
+
+
+
+def test_delete_question_invalidates_survey_stats_cache_after_commit(monkeypatch):
+    cache.clear()
+    cache.set(f"{SURVEY_STATS_CACHE_KEY}:questions:cached", {"questions": []}, ttl_seconds=300)
+    question = SurveyQuestion(
+        id=7,
+        question_text="Pertanyaan akan dihapus",
+        question_type=SurveyQuestionType.text,
+        is_required=True,
+        is_active=True,
+        order=2,
+    )
+    db = SurveyQuestionMutationDB(question=question)
+    admin = type("AdminStub", (), {"username": "reviewer"})()
+
+    monkeypatch.setattr("app.routers.admin_survey.log_audit", lambda **kwargs: None)
+
+    delete_question(question_id=7, db=db, admin=admin)
+
+    assert db.deleted == [question]
+    assert db.events == ["commit"]
+    assert cache.get(f"{SURVEY_STATS_CACHE_KEY}:questions:cached") is None
 
 
 
