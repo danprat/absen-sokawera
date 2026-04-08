@@ -4,7 +4,7 @@ from datetime import date, time
 from app.config import get_settings
 from app.models.daily_schedule import DailyWorkSchedule
 from app.models.employee import Employee
-from app.services.face_recognition import FaceRecognitionService
+from app.services.face_recognition import FaceRecognitionService, face_recognition_service
 from app.models.face_embedding import FaceEmbedding
 from app.models.holiday import Holiday
 from app.models.work_settings import WorkSettings
@@ -653,10 +653,39 @@ def test_face_recognition_debug_logging_defaults_to_false(monkeypatch):
 
 
 
-def test_face_recognition_debug_logging_helper_suppresses_output_when_disabled(capsys):
-    service = FaceRecognitionService()
+def test_face_recognition_debug_logging_helper_suppresses_output_when_disabled(monkeypatch, capsys):
+    get_settings.cache_clear()
+    monkeypatch.setenv("FACE_RECOGNITION_DEBUG_LOGS", "false")
 
+    service = FaceRecognitionService()
     service._debug("hidden message")
 
     captured = capsys.readouterr()
     assert captured.out == ""
+
+
+
+def test_face_recognition_debug_logging_helper_emits_output_when_enabled(monkeypatch, capsys):
+    get_settings.cache_clear()
+    monkeypatch.setenv("FACE_RECOGNITION_DEBUG_LOGS", "true")
+
+    service = FaceRecognitionService()
+    service._debug("visible message")
+
+    captured = capsys.readouterr()
+    assert captured.out == "visible message\n"
+
+
+
+def test_face_recognition_singleton_respects_latest_debug_flag(monkeypatch, capsys):
+    get_settings.cache_clear()
+    monkeypatch.setenv("FACE_RECOGNITION_DEBUG_LOGS", "false")
+    face_recognition_service._debug("first hidden message")
+    assert capsys.readouterr().out == ""
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("FACE_RECOGNITION_DEBUG_LOGS", "true")
+    face_recognition_service._debug("second visible message")
+
+    captured = capsys.readouterr()
+    assert captured.out == "second visible message\n"

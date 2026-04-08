@@ -26,21 +26,21 @@ except ImportError:
     print("WARNING: face_recognition not installed. Face recognition disabled.")
 
 
-settings = get_settings()
-
-
 class FaceRecognitionService:
     def __init__(self):
         self.enabled = FACE_RECOGNITION_AVAILABLE
-        self.debug_logging = settings.FACE_RECOGNITION_DEBUG_LOGS
         # Tolerance for face matching (lower = more strict)
         # 0.6 is typical, 0.5 is more strict, 0.4 is very strict
         self.tolerance = 0.5
-        
+
         # === OPTIMIZATION 1: Memory Cache ===
         self._embedding_cache: Dict[int, List[dict]] = {}  # employee_id -> list of embeddings
         self._cache_version: int = 0
         self._cache_initialized: bool = False
+
+    @property
+    def debug_logging(self) -> bool:
+        return get_settings().FACE_RECOGNITION_DEBUG_LOGS
 
     def _debug(self, message: str) -> None:
         if self.debug_logging:
