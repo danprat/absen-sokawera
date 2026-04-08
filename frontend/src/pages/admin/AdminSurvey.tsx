@@ -64,33 +64,38 @@ const StatCard = ({ title, value, icon: Icon, trend, color, delay = 0, tooltip }
   <motion.div
     initial={{ opacity: 0, y: 20 }}
     animate={{ opacity: 1, y: 0 }}
-    transition={{ duration: 0.4, delay }}
+    transition={{ duration: 0.5, delay, ease: "easeOut" }}
+    className="relative group"
   >
+    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 blur-xl rounded-xl z-0" />
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Card className="overflow-hidden border-none shadow-md hover:shadow-lg transition-all duration-300 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm cursor-pointer">
+          <Card className="relative z-10 overflow-hidden shadow-sm hover:shadow-xl transition-all duration-500 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border border-white/20 dark:border-white/10 cursor-pointer group-hover:-translate-y-1">
+            <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-white/0 dark:from-white/5 dark:to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
-                <div className={cn("p-3 rounded-2xl bg-opacity-10", color)}>
+                <div className={cn("p-3.5 rounded-2xl bg-opacity-15 shadow-[inset_0_1px_3px_rgba(255,255,255,0.4)] transition-transform duration-500 group-hover:scale-110", color)}>
                   <Icon className={cn("w-6 h-6", color.replace('bg-', 'text-'))} />
                 </div>
                 {trend && (
-                  <Badge variant={trend > 0 ? "default" : "destructive"} className="text-xs">
+                  <Badge variant={trend > 0 ? "default" : "destructive"} className="text-xs shadow-sm bg-opacity-90 backdrop-blur-md">
                     {trend > 0 ? "+" : ""}{trend}%
                     <TrendingUp className={cn("w-3 h-3 ml-1", trend < 0 && "rotate-180")} />
                   </Badge>
                 )}
               </div>
-              <div className="mt-4">
-                <h3 className="text-sm font-medium text-muted-foreground">{title}</h3>
-                <p className="text-3xl font-bold mt-1 tracking-tight">{value}</p>
+              <div className="mt-5 relative">
+                <h3 className="text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors duration-300">{title}</h3>
+                <p className="text-4xl font-extrabold mt-1 tracking-tight bg-clip-text text-transparent bg-gradient-to-br from-slate-900 to-slate-600 dark:from-white dark:to-slate-400">
+                  {value}
+                </p>
               </div>
             </CardContent>
           </Card>
         </TooltipTrigger>
         {tooltip && (
-          <TooltipContent>
+          <TooltipContent className="bg-slate-900/90 backdrop-blur-md border border-white/10">
             <p>{tooltip}</p>
           </TooltipContent>
         )}
@@ -127,10 +132,11 @@ const CustomDonutChart = ({ data }: { data: ChartDataItem[] }) => {
 
   return (
     <div className="flex flex-col md:flex-row items-center justify-center gap-8 h-full">
-      <div className="relative w-64 h-64 flex-shrink-0">
-        <svg viewBox="0 0 200 200" className="w-full h-full transform -rotate-90">
+      <div className="relative w-48 h-48 flex-shrink-0 group">
+        <div className="absolute inset-0 bg-primary/5 rounded-full blur-3xl group-hover:bg-primary/10 transition-colors duration-700" />
+        <svg viewBox="0 0 200 200" className="w-full h-full transform -rotate-90 relative z-10 filter drop-shadow-md">
           {/* Background Circle */}
-          <circle cx={center} cy={center} r={radius} fill="none" stroke="currentColor" strokeWidth="20" className="text-slate-100 dark:text-slate-800" />
+          <circle cx={center} cy={center} r={radius} fill="none" stroke="currentColor" strokeWidth="16" className="text-slate-100/50 dark:text-slate-800/50" />
           
           {/* Segments */}
           {data.map((item, index) => {
@@ -147,14 +153,14 @@ const CustomDonutChart = ({ data }: { data: ChartDataItem[] }) => {
                 r={radius}
                 fill="none"
                 stroke={SATISFACTION_COLOR_HEX[item.rating]}
-                strokeWidth="20"
+                strokeWidth="16"
                 strokeDasharray={`${dashArray} ${circumference}`}
                 strokeDashoffset={-((currentAngle / 360) * circumference)}
                 strokeLinecap="round"
                 initial={{ strokeDasharray: `0 ${circumference}` }}
                 animate={{ strokeDasharray: `${dashArray} ${circumference}` }}
-                transition={{ duration: 1, delay: index * 0.1, ease: "easeOut" }}
-                className="drop-shadow-sm"
+                transition={{ duration: 1.2, delay: index * 0.15, ease: [0.16, 1, 0.3, 1] }}
+                className="drop-shadow-sm hover:stroke-width-20 transition-all cursor-pointer"
               />
             );
             currentAngle += angle;
@@ -163,22 +169,22 @@ const CustomDonutChart = ({ data }: { data: ChartDataItem[] }) => {
         </svg>
         
         {/* Center Text */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <span className="text-4xl font-bold tracking-tighter text-slate-900 dark:text-white">
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-20">
+          <span className="text-5xl font-extrabold tracking-tighter bg-clip-text text-transparent bg-gradient-to-b from-slate-900 to-slate-600 dark:from-white dark:to-slate-400">
             {averageScore}
           </span>
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider mt-1">
+          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1">
             Rata-rata
           </span>
-          <div className="flex mt-2">
+          <div className="flex mt-2 gap-0.5">
             {[1, 2, 3, 4, 5].map((star) => (
               <Star 
                 key={star} 
                 className={cn(
-                  "w-3 h-3", 
+                  "w-3.5 h-3.5 transition-colors", 
                   star <= Math.round(parseFloat(averageScore)) 
-                    ? "text-amber-400 fill-amber-400" 
-                    : "text-slate-200 dark:text-slate-700"
+                    ? "text-amber-400 fill-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.5)]" 
+                    : "text-slate-200 dark:text-slate-800"
                 )} 
               />
             ))}
@@ -187,31 +193,33 @@ const CustomDonutChart = ({ data }: { data: ChartDataItem[] }) => {
       </div>
 
       {/* Legend */}
-      <div className="grid grid-cols-1 gap-3 w-full max-w-xs">
+      <div className="grid grid-cols-1 gap-2.5 w-full max-w-xs">
         {[...data].reverse().map((item, index) => (
           <motion.div 
             key={item.rating}
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.5 + (index * 0.1) }}
-            className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+            transition={{ delay: 0.5 + (index * 0.1), ease: "easeOut" }}
+            className="group flex items-center justify-between p-3 rounded-xl border border-transparent hover:border-slate-200/60 dark:hover:border-slate-700/60 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:shadow-sm transition-all cursor-pointer"
           >
             <div className="flex items-center gap-3">
               <div 
-                className="w-3 h-3 rounded-full shadow-sm" 
+                className="w-3.5 h-3.5 rounded-full shadow-[inset_0_1px_2px_rgba(255,255,255,0.4)] group-hover:scale-125 transition-transform duration-300" 
                 style={{ backgroundColor: SATISFACTION_COLOR_HEX[item.rating] }} 
               />
-              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 group-hover:text-foreground transition-colors">
                 {SATISFACTION_LABELS[item.rating as keyof typeof SATISFACTION_LABELS]}
               </span>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
               <span className="text-sm font-bold text-slate-900 dark:text-white">
                 {item.count}
               </span>
-              <span className="text-xs text-muted-foreground w-8 text-right">
-                {total > 0 ? Math.round((item.count / total) * 100) : 0}%
-              </span>
+              <div className="w-10 text-right">
+                <span className="text-xs font-medium px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-muted-foreground group-hover:bg-slate-200 dark:group-hover:bg-slate-700 transition-colors">
+                  {total > 0 ? Math.round((item.count / total) * 100) : 0}%
+                </span>
+              </div>
             </div>
           </motion.div>
         ))}
@@ -656,41 +664,46 @@ export function AdminSurvey() {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="space-y-6"
+      className="space-y-8"
     >
-      {/* Header */}
-      <div>
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Survey Kepuasan</h1>
-            <p className="text-muted-foreground">Kelola survey dan lihat hasil</p>
-          </div>
-          <Badge variant="outline" className="text-sm">
-            {stats?.total_responses || 0} Responden
-          </Badge>
+      {/* Premium Header */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border border-primary/10 p-8 shadow-sm">
+        <div className="absolute top-0 right-0 p-12 opacity-10 pointer-events-none">
+          <Star className="w-64 h-64 text-primary" />
         </div>
-        <Separator className="my-4" />
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-4xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary/60 mb-2">Survey Kepuasan</h1>
+            <p className="text-muted-foreground text-lg">Kelola survey, analisis feedback, dan pantau performa layanan.</p>
+          </div>
+          <motion.div whileHover={{ scale: 1.05 }} transition={{ type: "spring", stiffness: 400, damping: 10 }}>
+            <Badge variant="outline" className="text-sm px-4 py-2 bg-white/50 dark:bg-slate-900/50 backdrop-blur-md border border-primary/20 shadow-sm flex items-center gap-2">
+              <Users className="w-4 h-4 text-primary" />
+              <span className="font-bold text-base">{stats?.total_responses || 0}</span> Responden
+            </Badge>
+          </motion.div>
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="w-full justify-start border-b rounded-none h-auto p-0 bg-transparent space-x-6">
+        <TabsList className="p-1.5 bg-slate-100/50 dark:bg-slate-800/50 backdrop-blur-xl border border-slate-200/50 dark:border-slate-700/50 rounded-xl inline-flex shadow-inner">
           <TabsTrigger
             value="laporan"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 font-medium"
+            className="rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-slate-900 data-[state=active]:shadow-sm data-[state=active]:text-primary px-6 py-2.5 font-medium transition-all"
           >
             <BarChart3 className="w-4 h-4 mr-2" />
-            Laporan
+            Laporan & Analisis
           </TabsTrigger>
           <TabsTrigger
             value="pertanyaan"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 font-medium"
+            className="rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-slate-900 data-[state=active]:shadow-sm data-[state=active]:text-primary px-6 py-2.5 font-medium transition-all"
           >
             <MessageSquare className="w-4 h-4 mr-2" />
             Kelola Pertanyaan
           </TabsTrigger>
           <TabsTrigger
             value="layanan"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 font-medium"
+            className="rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-slate-900 data-[state=active]:shadow-sm data-[state=active]:text-primary px-6 py-2.5 font-medium transition-all"
           >
             <Building2 className="w-4 h-4 mr-2" />
             Jenis Layanan
@@ -698,89 +711,97 @@ export function AdminSurvey() {
         </TabsList>
 
         {/* TAB: Laporan */}
-        <TabsContent value="laporan" className="space-y-6">
-          {/* Filters */}
-          <Card className="border-none shadow-sm bg-white dark:bg-slate-950">
-            <CardContent className="pt-6">
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-col md:flex-row gap-4 items-end">
-                  <div className="space-y-1.5 flex-1">
-                    <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Periode</Label>
-                    <div className="flex items-center gap-2">
-                      <div className="relative flex-1">
-                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <TabsContent value="laporan" className="space-y-6 focus-visible:outline-none focus-visible:ring-0">
+          {/* Filters Command Bar */}
+          <Card className="border border-white/20 dark:border-slate-800/50 shadow-[0_8px_30px_rgb(0,0,0,0.04)] bg-white/60 dark:bg-slate-950/60 backdrop-blur-xl overflow-hidden relative">
+            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary/0 via-primary/20 to-primary/0" />
+            <CardContent className="p-5 md:p-6">
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col md:flex-row gap-5 items-end">
+                  <div className="space-y-2 flex-1">
+                    <Label className="text-xs font-semibold text-muted-foreground tracking-wider uppercase">Filter Periode</Label>
+                    <div className="flex items-center gap-3">
+                      <div className="relative flex-1 group">
+                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
                         <Input
                           type="date"
                           value={startDate}
                           onChange={(e) => setStartDate(e.target.value)}
-                          className="pl-9 bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+                          className="pl-9 h-11 bg-white/50 dark:bg-slate-900/50 border-slate-200/60 dark:border-slate-700/60 transition-shadow focus:shadow-[0_0_0_2px_rgba(var(--primary),0.2)]"
                         />
                       </div>
-                      <span className="text-muted-foreground">-</span>
-                      <div className="relative flex-1">
-                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <span className="text-muted-foreground font-medium">-</span>
+                      <div className="relative flex-1 group">
+                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
                         <Input
                           type="date"
                           value={endDate}
                           onChange={(e) => setEndDate(e.target.value)}
-                          className="pl-9 bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+                          className="pl-9 h-11 bg-white/50 dark:bg-slate-900/50 border-slate-200/60 dark:border-slate-700/60 transition-shadow focus:shadow-[0_0_0_2px_rgba(var(--primary),0.2)]"
                         />
                       </div>
                     </div>
                   </div>
-                <div className="space-y-1.5 min-w-[240px]">
-                  <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Filter Layanan</Label>
-                  <Select value={filterServiceType} onValueChange={setFilterServiceType}>
-                    <SelectTrigger className="bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800">
-                      <SelectValue placeholder="Semua Layanan" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Semua Layanan</SelectItem>
-                      {serviceTypes.map((type) => (
-                        <SelectItem key={type.id} value={type.id.toString()}>
-                          {type.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Select value={exportFormat} onValueChange={(v) => setExportFormat(v as 'csv' | 'pdf' | 'xlsx')}>
-                    <SelectTrigger className="w-28">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="pdf">PDF</SelectItem>
-                      <SelectItem value="xlsx">Excel</SelectItem>
-                      <SelectItem value="csv">CSV</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    onClick={handleExport}
-                    disabled={isExporting}
-                    className="bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100"
-                  >
-                    {isExporting ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Download className="w-4 h-4 mr-2" />
-                    )}
-                    Export
-                  </Button>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <p className="text-xs text-muted-foreground">
-                  Statistik, daftar keluhan, feedback umum, dan hasil export mengikuti filter periode dan layanan yang sedang aktif.
-                </p>
-                {hasInvalidDateRange && (
-                  <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-200">
-                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                    <span>Tanggal mulai tidak boleh melebihi tanggal akhir. Perbaiki rentang tanggal untuk memuat ulang laporan atau melakukan export.</span>
+                  <div className="space-y-2 min-w-[260px]">
+                    <Label className="text-xs font-semibold text-muted-foreground tracking-wider uppercase">Jenis Layanan</Label>
+                    <Select value={filterServiceType} onValueChange={setFilterServiceType}>
+                      <SelectTrigger className="h-11 bg-white/50 dark:bg-slate-900/50 border-slate-200/60 dark:border-slate-700/60">
+                        <SelectValue placeholder="Semua Layanan" />
+                      </SelectTrigger>
+                      <SelectContent className="backdrop-blur-xl bg-white/90 dark:bg-slate-900/90 border-slate-200/50 dark:border-slate-800/50">
+                        <SelectItem value="all">Semua Layanan</SelectItem>
+                        {serviceTypes.map((type) => (
+                          <SelectItem key={type.id} value={type.id.toString()}>
+                            {type.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                )}
+                  <div className="flex items-center gap-3 w-full md:w-auto">
+                    <Select value={exportFormat} onValueChange={(v) => setExportFormat(v as 'csv' | 'pdf' | 'xlsx')}>
+                      <SelectTrigger className="h-11 w-32 bg-white/50 dark:bg-slate-900/50 border-slate-200/60 dark:border-slate-700/60">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pdf">PDF Report</SelectItem>
+                        <SelectItem value="xlsx">Excel File</SelectItem>
+                        <SelectItem value="csv">CSV Data</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      onClick={handleExport}
+                      disabled={isExporting}
+                      className="h-11 px-6 bg-primary font-medium shadow-[0_4px_14px_0_rgba(var(--primary),0.39)] hover:shadow-[0_6px_20px_rgba(var(--primary),0.23)] hover:-translate-y-0.5 transition-all w-full md:w-auto"
+                    >
+                      {isExporting ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Download className="w-4 h-4 mr-2" />
+                      )}
+                      Unduh
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                  <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                    Statistik laporan, keluhan spesifik, dan feedback umum otomatis disesuaikan dengan filter yang aktif.
+                  </p>
+                  <AnimatePresence>
+                    {hasInvalidDateRange && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="flex items-center gap-2 rounded-lg border border-rose-200/50 bg-rose-50/50 px-3 py-2.5 text-xs text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300"
+                      >
+                        <AlertCircle className="h-4 w-4 shrink-0" />
+                        <span className="font-medium">Kesalahan Filter: Tanggal awal tidak boleh melewati tanggal akhir. Laporan tidak dapat dimuat atau diunduh.</span>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               </div>
-            </div>
             </CardContent>
           </Card>
 
@@ -878,13 +899,12 @@ export function AdminSurvey() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Satisfaction Chart */}
                 <motion.div 
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.4 }}
-                  className="lg:col-span-2"
                 >
                   <Card className="h-full border-none shadow-md bg-white dark:bg-slate-950">
                     <CardHeader>
@@ -900,7 +920,7 @@ export function AdminSurvey() {
                     </CardHeader>
                     <CardContent>
                       {stats.total_responses > 0 ? (
-                        <div className="py-6">
+                        <div className="py-2">
                           <CustomDonutChart 
                             data={satisfactionOrder
                               .map(rating => ({
@@ -937,12 +957,12 @@ export function AdminSurvey() {
                         Performa Layanan
                       </CardTitle>
                       <CardDescription>
-                        Peringkat kepuasan per layanan
+                        Peringkat kepuasan {stats.by_service_type.length} layanan terdaftar
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="flex-1">
-                      <ScrollArea className="h-[350px] pr-4">
-                        <div className="space-y-4">
+                      <ScrollArea className="h-[400px] pr-2">
+                        <div className="space-y-2">
                           {stats.by_service_type.length > 0 ? (
                             stats.by_service_type
                               .map(item => {
@@ -952,49 +972,75 @@ export function AdminSurvey() {
                               })
                               .sort((a, b) => b.satisfactionPercent - a.satisfactionPercent)
                               .map((item, index) => (
-                                <div key={item.service_type_id} className="group">
-                                  <div className="flex items-center justify-between mb-2">
-                                    <div className="flex items-center gap-3 overflow-hidden">
-                                      <div className={cn(
-                                        "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
-                                        index < 3 ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
-                                      )}>
-                                        {index + 1}
-                                      </div>
-                                      <span className="font-medium truncate text-sm" title={item.service_type_name}>
-                                        {item.service_type_name}
-                                      </span>
-                                    </div>
-                                    <span className={cn(
-                                      "text-sm font-bold",
-                                      item.satisfactionPercent >= 80 ? "text-emerald-600" :
-                                      item.satisfactionPercent >= 60 ? "text-blue-600" :
-                                      "text-amber-600"
+                                <div key={item.service_type_id} className="group relative p-3 rounded-xl border border-transparent hover:border-slate-200/70 dark:hover:border-slate-700/70 hover:bg-white dark:hover:bg-slate-900 hover:shadow-sm transition-all duration-200">
+                                  <div className="flex items-center gap-3">
+                                    {/* Rank Badge */}
+                                    <div className={cn(
+                                      "w-8 h-8 rounded-full flex items-center justify-center text-xs font-extrabold shrink-0 shadow-sm transition-transform group-hover:scale-110 duration-300",
+                                      index === 0 ? "bg-gradient-to-br from-yellow-300 to-amber-400 text-yellow-900 border border-yellow-300" :
+                                      index === 1 ? "bg-gradient-to-br from-slate-300 to-slate-400 text-slate-800 border border-slate-300" :
+                                      index === 2 ? "bg-gradient-to-br from-orange-300 to-amber-500 text-orange-900 border border-orange-300" :
+                                      "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700"
                                     )}>
-                                      {item.satisfactionPercent}%
-                                    </span>
-                                  </div>
-                                  <div className="relative h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                                    <motion.div
-                                      initial={{ width: 0 }}
-                                      animate={{ width: `${item.satisfactionPercent}%` }}
-                                      transition={{ duration: 1, delay: 0.5 + (index * 0.1) }}
-                                      className={cn(
-                                        "h-full rounded-full transition-all",
-                                        item.satisfactionPercent >= 80 ? "bg-emerald-500" :
-                                        item.satisfactionPercent >= 60 ? "bg-blue-500" :
-                                        "bg-amber-500"
-                                      )}
-                                    />
-                                  </div>
-                                  <div className="flex justify-between mt-1 text-[10px] text-muted-foreground">
-                                    <span>{(item.rating_distribution['sangat_puas'] || 0) + (item.rating_distribution['puas'] || 0)}/{item.total} puas</span>
-                                    <span>Target: 80%</span>
+                                      {index + 1}
+                                    </div>
+
+                                    {/* Content */}
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                                        <span className="font-semibold text-sm text-slate-800 dark:text-slate-200 truncate group-hover:text-primary transition-colors" title={item.service_type_name}>
+                                          {item.service_type_name}
+                                        </span>
+                                        {/* Status Pill */}
+                                        <span className={cn(
+                                          "shrink-0 text-[11px] font-bold px-2 py-0.5 rounded-full border",
+                                          item.satisfactionPercent >= 80 ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900/50" :
+                                          item.satisfactionPercent >= 60 ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-900/50" :
+                                          "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/50"
+                                        )}>
+                                          {item.satisfactionPercent}%
+                                        </span>
+                                      </div>
+
+                                      {/* Progress Bar */}
+                                      <div className="relative h-2 bg-slate-100 dark:bg-slate-800/80 rounded-full overflow-hidden shadow-inner mb-1.5">
+                                        <motion.div
+                                          initial={{ width: 0 }}
+                                          animate={{ width: `${item.satisfactionPercent}%` }}
+                                          transition={{ duration: 1.2, delay: 0.5 + (index * 0.1), ease: "easeOut" }}
+                                          className={cn(
+                                            "h-full rounded-full relative overflow-hidden",
+                                            item.satisfactionPercent >= 80 ? "bg-gradient-to-r from-emerald-400 to-emerald-600" :
+                                            item.satisfactionPercent >= 60 ? "bg-gradient-to-r from-blue-400 to-blue-600" :
+                                            "bg-gradient-to-r from-amber-400 to-amber-600"
+                                          )}
+                                        >
+                                          <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.3)_50%,transparent_100%)] w-[200%] animate-[shimmer_2s_infinite]" />
+                                        </motion.div>
+                                      </div>
+
+                                      {/* Meta info row */}
+                                      <div className="flex items-center justify-between text-[10px] font-medium text-muted-foreground">
+                                        <div className="flex items-center gap-3">
+                                          <span className="flex items-center gap-1">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                                            {(item.rating_distribution['sangat_puas'] || 0) + (item.rating_distribution['puas'] || 0)} puas
+                                          </span>
+                                          {((item.rating_distribution['tidak_puas'] || 0) + (item.rating_distribution['sangat_tidak_puas'] || 0)) > 0 && (
+                                            <span className="flex items-center gap-1">
+                                              <span className="w-1.5 h-1.5 rounded-full bg-rose-400 inline-block" />
+                                              {(item.rating_distribution['tidak_puas'] || 0) + (item.rating_distribution['sangat_tidak_puas'] || 0)} tidak puas
+                                            </span>
+                                          )}
+                                        </div>
+                                        <span className="text-slate-400">{item.total} resp.</span>
+                                      </div>
+                                    </div>
                                   </div>
                                 </div>
                               ))
                           ) : (
-                            <div className="text-center py-8 text-muted-foreground text-sm">
+                            <div className="text-center py-12 text-muted-foreground text-sm border border-dashed rounded-xl border-slate-200 dark:border-slate-800">
                               Belum ada data layanan
                             </div>
                           )}
@@ -1065,146 +1111,157 @@ export function AdminSurvey() {
                                   })()
                                 : null;
 
-                              return (
-                                <div
-                                  key={question.question_id}
-                                  className={cn(
-                                    "border rounded-xl overflow-hidden bg-slate-50/50 dark:bg-slate-900/50 transition-colors",
-                                    complaintCount > 0 && "border-rose-200 bg-rose-50/40 dark:border-rose-900/60 dark:bg-rose-950/10"
-                                  )}
-                                >
-                                  {/* Question Header */}
+                                return (
                                   <div
+                                    key={question.question_id}
                                     className={cn(
-                                      "flex items-center justify-between p-4 cursor-pointer transition-colors",
-                                      complaintCount > 0
-                                        ? "hover:bg-rose-100/50 dark:hover:bg-rose-950/20"
-                                        : "hover:bg-slate-100/50 dark:hover:bg-slate-800/50"
+                                      "border rounded-xl overflow-hidden bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm transition-all duration-300 hover:shadow-lg",
+                                      complaintCount > 0 && "border-rose-200/50 bg-rose-50/30 dark:border-rose-900/40 dark:bg-rose-950/20"
                                     )}
-                                    onClick={() => toggleExpandQuestion(question.question_id)}
                                   >
-                                    <div className="flex items-start gap-3 flex-1 min-w-0">
-                                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-sm font-bold text-primary shrink-0">
-                                        {index + 1}
-                                      </div>
-                                      <div className="flex-1 min-w-0">
-                                        <p className="font-medium text-sm">{question.question_text}</p>
-                                        <div className="flex flex-wrap items-center gap-2 mt-1">
-                                          <Badge variant="outline" className="text-xs">
-                                            {question.question_type === 'rating'
-                                              ? 'Rating'
-                                              : question.question_type === 'multiple_choice'
-                                                ? 'Pilihan Ganda'
-                                                : 'Teks'}
-                                          </Badge>
-                                          <span className="text-xs text-muted-foreground">{question.response_count} respons</span>
-                                          {avgScore && (
-                                            <Badge className="text-xs font-bold bg-amber-500 hover:bg-amber-600">
-                                              Rata-rata {avgScore}/5
-                                            </Badge>
-                                          )}
-                                          {question.question_type === 'rating' && (
-                                            <>
-                                              <Badge
-                                                variant={complaintCount > 0 ? 'destructive' : 'secondary'}
-                                                className="text-xs"
-                                              >
-                                                {complaintCount} keluhan
-                                              </Badge>
-                                              <Badge
-                                                variant="outline"
-                                                className={cn(
-                                                  "text-xs",
-                                                  lowRatingCount > 0 && "border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-300"
-                                                )}
-                                              >
-                                                Rating rendah {lowRatingCount} ({lowRatingPercentage}%)
-                                              </Badge>
-                                            </>
-                                          )}
-                                        </div>
-                                      </div>
-                                    </div>
-                                    <motion.div
-                                      animate={{ rotate: expandedQuestions.has(question.question_id) ? 180 : 0 }}
-                                      transition={{ duration: 0.2 }}
-                                      className="shrink-0"
+                                    {/* Question Header */}
+                                    <div
+                                      className={cn(
+                                        "flex items-center justify-between p-4 cursor-pointer transition-colors",
+                                        complaintCount > 0
+                                          ? "hover:bg-rose-100/50 dark:hover:bg-rose-950/30"
+                                          : "hover:bg-slate-100/60 dark:hover:bg-slate-800/60"
+                                      )}
+                                      onClick={() => toggleExpandQuestion(question.question_id)}
                                     >
-                                      <ArrowRight className="w-5 h-5 text-muted-foreground rotate-90" />
-                                    </motion.div>
-                                  </div>
-
-                            {/* Expanded Content */}
-                            <AnimatePresence>
-                              {expandedQuestions.has(question.question_id) && (
-                                <motion.div
-                                  initial={{ height: 0, opacity: 0 }}
-                                  animate={{ height: 'auto', opacity: 1 }}
-                                  exit={{ height: 0, opacity: 0 }}
-                                  transition={{ duration: 0.3 }}
-                                  className="overflow-hidden"
-                                >
-                                  <div className="p-4 pt-0 border-t">
-                                    {question.question_type === 'rating' && question.rating_distribution ? (
-                                      /* Rating Distribution */
-                                      <div className="space-y-5">
-                                        <div className="space-y-3">
-                                          {satisfactionOrder.map((rating) => {
-                                            const count = question.rating_distribution?.[rating] || 0;
-                                            const percentage = question.response_count > 0
-                                              ? Math.round((count / question.response_count) * 100)
-                                              : 0;
-                                            return (
-                                              <div key={rating} className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                  <div className="flex items-center gap-2">
-                                                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: SATISFACTION_COLOR_HEX[rating] }} />
-                                                    <span className="text-xs font-medium">{SATISFACTION_LABELS[rating]}</span>
-                                                  </div>
-                                                  <div className="flex items-center gap-2">
-                                                    <span className="text-sm font-bold">{count}</span>
-                                                    <Badge variant="outline" className="text-xs min-w-[3rem] justify-center">
-                                                      {percentage}%
-                                                    </Badge>
-                                                  </div>
-                                                </div>
-                                                <div className="relative h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                                                  <motion.div
-                                                    initial={{ width: 0 }}
-                                                    animate={{ width: `${percentage}%` }}
-                                                    transition={{ duration: 0.8, delay: 0.1 }}
-                                                    className="h-full rounded-full"
-                                                    style={{ backgroundColor: SATISFACTION_COLOR_HEX[rating] }}
-                                                  />
-                                                </div>
-                                              </div>
-                                            );
-                                          })}
+                                      <div className="flex items-start gap-4 flex-1 min-w-0">
+                                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center text-sm font-extrabold text-primary shrink-0 shadow-inner">
+                                          {index + 1}
                                         </div>
-
-                                        <div className="space-y-3">
-                                          <div className="flex items-center justify-between gap-3">
-                                            <div>
-                                              <p className="text-sm font-semibold">Keluhan pada pertanyaan ini</p>
-                                              <p className="text-xs text-muted-foreground">
-                                                Khusus alasan pada rating rendah. Feedback umum tetap ditampilkan terpisah di panel sebelah.
-                                              </p>
-                                            </div>
-                                            <Badge variant="secondary" className="text-xs">
-                                              {question.complaint_responses?.length || 0} keluhan
+                                        <div className="flex-1 min-w-0 pt-0.5">
+                                          <p className="font-semibold text-sm text-foreground/90 leading-tight">{question.question_text}</p>
+                                          <div className="flex flex-wrap items-center gap-2 mt-2">
+                                            <Badge variant="secondary" className="text-[10px] font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border-none transition-colors">
+                                              {question.question_type === 'rating'
+                                                ? 'Rating'
+                                                : question.question_type === 'multiple_choice'
+                                                  ? 'Pilihan Ganda'
+                                                  : 'Teks'}
                                             </Badge>
+                                            <span className="text-[11px] font-medium text-slate-500 flex items-center gap-1">
+                                              <Users className="w-3 h-3" />
+                                              {question.response_count} respons
+                                            </span>
+                                            {avgScore && (
+                                              <Badge className="text-[10px] font-bold bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 border-none shadow-sm pb-0.5">
+                                                <Star className="w-3 h-3 mr-1 fill-white opacity-80" />
+                                                {avgScore} / 5
+                                              </Badge>
+                                            )}
+                                            {question.question_type === 'rating' && (
+                                              <>
+                                                <Badge
+                                                  variant={complaintCount > 0 ? 'destructive' : 'secondary'}
+                                                  className={cn(
+                                                    "text-[10px] border-none shadow-sm pb-0.5",
+                                                    complaintCount === 0 && "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 opacity-50"
+                                                  )}
+                                                >
+                                                  {complaintCount} keluhan
+                                                </Badge>
+                                                {lowRatingCount > 0 && (
+                                                  <Badge
+                                                    variant="outline"
+                                                    className="text-[10px] border-rose-200 text-rose-600 bg-rose-50/50 dark:border-rose-900/50 dark:text-rose-400 dark:bg-rose-950/30"
+                                                  >
+                                                    {lowRatingCount} rating rendah ({lowRatingPercentage}%)
+                                                  </Badge>
+                                                )}
+                                              </>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <motion.div
+                                        animate={{ rotate: expandedQuestions.has(question.question_id) ? 90 : 0 }}
+                                        transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                                        className="shrink-0 ml-4 rounded-full p-2 bg-slate-50 dark:bg-slate-800"
+                                      >
+                                        <ArrowRight className="w-4 h-4 text-slate-400" />
+                                      </motion.div>
+                                    </div>
+
+                              {/* Expanded Content */}
+                              <AnimatePresence>
+                                {expandedQuestions.has(question.question_id) && (
+                                  <motion.div
+                                    initial={{ height: 0, opacity: 0 }}
+                                    animate={{ height: 'auto', opacity: 1 }}
+                                    exit={{ height: 0, opacity: 0 }}
+                                    transition={{ duration: 0.3, ease: "easeInOut" }}
+                                    className="overflow-hidden bg-slate-50/50 dark:bg-slate-900/30"
+                                  >
+                                    <div className="p-5 pt-4 border-t border-slate-100 dark:border-slate-800/50">
+                                      {question.question_type === 'rating' && question.rating_distribution ? (
+                                        /* Rating Distribution */
+                                        <div className="space-y-6">
+                                          <div className="space-y-3.5">
+                                            {satisfactionOrder.map((rating) => {
+                                              const count = question.rating_distribution?.[rating] || 0;
+                                              const percentage = question.response_count > 0
+                                                ? Math.round((count / question.response_count) * 100)
+                                                : 0;
+                                              return (
+                                                <div key={rating} className="space-y-2 group/rating">
+                                                  <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-2.5">
+                                                      <div className="w-2.5 h-2.5 rounded-full shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)] group-hover/rating:scale-125 transition-transform" style={{ backgroundColor: SATISFACTION_COLOR_HEX[rating] }} />
+                                                      <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">{SATISFACTION_LABELS[rating]}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-3">
+                                                      <span className="text-sm font-extrabold text-slate-700 dark:text-slate-200">{count}</span>
+                                                      <div className="text-[10px] font-bold text-muted-foreground w-8 text-right bg-white dark:bg-slate-800 px-1.5 py-0.5 rounded shadow-sm opacity-80 group-hover/rating:opacity-100 transition-opacity">
+                                                        {percentage}%
+                                                      </div>
+                                                    </div>
+                                                  </div>
+                                                  <div className="relative h-2 bg-slate-200/50 dark:bg-slate-800/50 rounded-full overflow-hidden shadow-inner">
+                                                    <motion.div
+                                                      initial={{ width: 0 }}
+                                                      animate={{ width: `${percentage}%` }}
+                                                      transition={{ duration: 0.8, delay: 0.1, ease: "easeOut" }}
+                                                      className="h-full rounded-full relative overflow-hidden"
+                                                      style={{ backgroundColor: SATISFACTION_COLOR_HEX[rating] }}
+                                                    >
+                                                      <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.25)_50%,transparent_100%)] w-[200%] animate-[shimmer_2s_infinite]" />
+                                                    </motion.div>
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
                                           </div>
 
-                                          {question.complaint_responses && question.complaint_responses.length > 0 ? (
-                                            <ScrollArea className="h-[260px]">
-                                              <div className="space-y-3 pr-4">
-                                                {question.complaint_responses.map((complaint, idx) => (
-                                                  <motion.div
-                                                    key={`${complaint.response_id}-${idx}`}
-                                                    initial={{ opacity: 0, x: -10 }}
-                                                    animate={{ opacity: 1, x: 0 }}
-                                                    transition={{ delay: idx * 0.05 }}
-                                                    className="p-3 rounded-lg bg-white dark:bg-slate-800 border shadow-sm hover:shadow-md transition-shadow"
+                                          <div className="space-y-4 pt-2">
+                                            <div className="flex items-center justify-between gap-3 bg-white dark:bg-slate-950 p-3 rounded-xl border shadow-sm border-slate-100 dark:border-slate-800">
+                                              <div>
+                                                <p className="text-[13px] font-bold text-slate-700 dark:text-slate-300">Keluhan pada pertanyaan ini</p>
+                                                <p className="text-[11px] text-muted-foreground mt-0.5 leading-tight">
+                                                  Alasan spesifik dari responden yang memberikan rating rendah.
+                                                </p>
+                                              </div>
+                                              <Badge variant="secondary" className={cn(
+                                                "text-xs font-bold px-2.5 py-1 whitespace-nowrap",
+                                                (question.complaint_responses?.length || 0) > 0 ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400" : ""
+                                              )}>
+                                                {question.complaint_responses?.length || 0} keluhan
+                                              </Badge>
+                                            </div>
+
+                                            {question.complaint_responses && question.complaint_responses.length > 0 ? (
+                                              <ScrollArea className="h-[260px] rounded-xl border border-slate-200/60 dark:border-slate-800 bg-white/50 dark:bg-slate-950/50 backdrop-blur pb-2">
+                                                <div className="p-3 space-y-3">
+                                                  {question.complaint_responses.map((complaint, idx) => (
+                                                    <motion.div
+                                                      key={`${complaint.response_id}-${idx}`}
+                                                      initial={{ opacity: 0, scale: 0.98, y: 10 }}
+                                                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                                                      transition={{ delay: idx * 0.05 + 0.1, type: "spring", stiffness: 200, damping: 20 }}
+                                                      className="p-3.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md transition-all group/complaint"
                                                   >
                                                     <div className="flex items-center gap-2 flex-wrap mb-2">
                                                       <Badge variant="outline" className="text-xs">
@@ -1300,7 +1357,7 @@ export function AdminSurvey() {
                 <Card className="border-none shadow-md bg-white dark:bg-slate-950 h-full flex flex-col">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <div className="p-2 bg-amber-100 dark:bg-amber-900/20 rounded-lg">
+                      <div className="p-2 bg-gradient-to-br from-amber-100 to-amber-200 dark:from-amber-900/40 dark:to-amber-800/40 rounded-lg shadow-sm">
                         <MessageSquare className="w-5 h-5 text-amber-600 dark:text-amber-400" />
                       </div>
                       Feedback & Saran Umum
@@ -1328,25 +1385,24 @@ export function AdminSurvey() {
                           {responses.map((response, idx) => (
                             <motion.div
                               key={response.id}
-                              initial={{ opacity: 0, x: -10 }}
-                              animate={{ opacity: 1, x: 0 }}
-                              transition={{ delay: idx * 0.03 }}
-                              className="p-4 rounded-lg bg-gradient-to-br from-white to-slate-50 dark:from-slate-800 dark:to-slate-900 border shadow-sm hover:shadow-md transition-shadow"
+                              initial={{ opacity: 0, scale: 0.98, y: 10 }}
+                              animate={{ opacity: 1, scale: 1, y: 0 }}
+                              transition={{ delay: idx * 0.05, type: "spring", stiffness: 200, damping: 20 }}
+                              className="p-4 rounded-xl bg-white/50 dark:bg-slate-900/50 border border-slate-200/60 dark:border-slate-800 backdrop-blur-sm shadow-sm hover:shadow-lg transition-all duration-300"
                             >
-                              <div className="flex items-start gap-3">
-                                <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
-                                  <MessageSquare className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                              <div className="flex items-start gap-4">
+                                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-200/50 to-amber-100 dark:from-amber-900/30 dark:to-amber-800/20 flex items-center justify-center flex-shrink-0 shadow-inner border border-amber-200/50 dark:border-amber-800/30">
+                                  <MessageSquare className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                                 </div>
-                                <div className="flex-1">
-                                  <p className="text-sm whitespace-pre-wrap leading-relaxed mb-3">{response.feedback}</p>
-                                  <Separator className="my-2" />
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <Badge variant="secondary" className="text-xs">
+                                <div className="flex-1 mt-0.5">
+                                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed mb-3">{response.feedback}</p>
+                                  <div className="flex items-center gap-2 flex-wrap pt-3 border-t border-slate-100 dark:border-slate-800/60">
+                                    <Badge variant="secondary" className="text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border-none transition-colors px-2 py-0.5">
                                       <Building2 className="w-3 h-3 mr-1" />
                                       {response.service_type_name}
                                     </Badge>
-                                    <Badge variant="outline" className="text-xs">
-                                      <Calendar className="w-3 h-3 mr-1" />
+                                    <Badge variant="outline" className="text-[10px] text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 px-2 py-0.5">
+                                      <Calendar className="w-3 h-3 mr-1 opacity-70" />
                                       {new Date(response.submitted_at).toLocaleDateString('id-ID', { 
                                         day: 'numeric', 
                                         month: 'short', 
@@ -1355,7 +1411,10 @@ export function AdminSurvey() {
                                         minute: '2-digit'
                                       })}
                                     </Badge>
-                                    <Badge variant={response.filled_by === 'sendiri' ? 'default' : 'secondary'} className="text-xs">
+                                    <Badge variant={response.filled_by === 'sendiri' ? 'default' : 'secondary'} className={cn(
+                                      "text-[10px] px-2 py-0.5 border-none",
+                                      response.filled_by === 'sendiri' ? "bg-primary/10 text-primary hover:bg-primary/20" : ""
+                                    )}>
                                       {response.filled_by === 'sendiri' ? 'Mandiri' : 'Diwakilkan'}
                                     </Badge>
                                   </div>
@@ -1368,9 +1427,9 @@ export function AdminSurvey() {
 
                         {/* Pagination Controls */}
                         {totalFeedback > feedbackPerPage && (
-                          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-4 border-t">
-                            <div className="text-sm text-muted-foreground">
-                              Menampilkan {((feedbackPage - 1) * feedbackPerPage) + 1}-{Math.min(feedbackPage * feedbackPerPage, totalFeedback)} dari {totalFeedback} feedback
+                          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+                            <div className="text-sm font-medium text-muted-foreground">
+                              Menampilkan {((feedbackPage - 1) * feedbackPerPage) + 1}-{Math.min(feedbackPage * feedbackPerPage, totalFeedback)} dari <span className="text-foreground">{totalFeedback}</span> feedback
                             </div>
                             <div className="flex items-center gap-2">
                               <Button
