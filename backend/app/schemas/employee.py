@@ -4,6 +4,8 @@ from datetime import datetime
 
 
 class EmployeeBase(BaseModel):
+    tenant_id: Optional[str] = None
+    external_employee_id: Optional[str] = None
     nik: Optional[str] = None  # NIK (Nomor Induk Kependudukan)
     name: str
     position: str
@@ -17,6 +19,8 @@ class EmployeeCreate(EmployeeBase):
 
 
 class EmployeeUpdate(BaseModel):
+    tenant_id: Optional[str] = None
+    external_employee_id: Optional[str] = None
     nik: Optional[str] = None
     name: Optional[str] = None
     position: Optional[str] = None

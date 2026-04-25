@@ -11,6 +11,7 @@ from app.models.employee import Employee
 from app.schemas.attendance import AttendanceRecognizeResponse, AttendanceTodayItem, AttendanceTodayResponse
 from app.services.face_recognition import face_recognition_service
 from app.services.attendance import attendance_service
+from app.utils.face_service_auth import require_face_service_key
 
 router = APIRouter(prefix="/attendance", tags=["Attendance - Tablet"])
 limiter = Limiter(key_func=get_remote_address)
@@ -22,6 +23,7 @@ async def recognize_face_only(
     request: Request,
     file: UploadFile = File(None),
     image_base64: str = Form(None),
+    _: None = Depends(require_face_service_key),
     db: Session = Depends(get_db)
 ):
     """Recognize face WITHOUT saving attendance - requires user confirmation"""
@@ -124,6 +126,7 @@ async def recognize_face_only(
 def confirm_attendance(
     employee_id: int = Form(...),
     confidence: float = Form(...),
+    _: None = Depends(require_face_service_key),
     db: Session = Depends(get_db)
 ):
     """Confirm and save attendance after user clicks 'Hadir' or 'Pulang' button"""

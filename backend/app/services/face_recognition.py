@@ -8,7 +8,6 @@ OPTIMIZATIONS:
 - Image resizing untuk gambar besar (2-3x lebih cepat)
 """
 import io
-import struct
 from typing import Optional, Tuple, Dict, List
 import numpy as np
 from PIL import Image
@@ -45,6 +44,19 @@ class FaceRecognitionService:
     def _debug(self, message: str) -> None:
         if self.debug_logging:
             print(message)
+
+    @staticmethod
+    def embedding_bytes_to_vector(embedding: bytes) -> list[float]:
+        expected_size = 128 * 4
+        if len(embedding) != expected_size:
+            raise ValueError(f"Expected {expected_size} embedding bytes, got {len(embedding)}")
+        return np.frombuffer(embedding, dtype=np.float32).astype(float).tolist()
+
+    @staticmethod
+    def embedding_vector_to_bytes(vector: list[float]) -> bytes:
+        if len(vector) != 128:
+            raise ValueError(f"Expected 128 embedding dimensions, got {len(vector)}")
+        return np.array(vector, dtype=np.float32).tobytes()
 
     def _load_image(self, image_data: bytes, max_size: int = 640) -> Optional[np.ndarray]:
         """
@@ -89,7 +101,7 @@ class FaceRecognitionService:
             
             for fe in embeddings:
                 # Skip incompatible embeddings
-                if len(fe.embedding) != expected_size:
+                if not fe.embedding or len(fe.embedding) != expected_size:
                     continue
                     
                 if fe.employee_id not in self._embedding_cache:

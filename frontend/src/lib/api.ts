@@ -1,6 +1,10 @@
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
+import { createFaceOperationUrl } from './faceOrchestratorRoutes.mjs';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://aysyhhzfmigjsryaoizu.supabase.co/functions/v1/app-api';
+export const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
+export const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+export const FACE_ORCHESTRATOR_URL = import.meta.env.VITE_FACE_ORCHESTRATOR_URL || `${API_BASE_URL}/api/v1`;
 
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
@@ -11,8 +15,23 @@ const apiClient: AxiosInstance = axios.create({
 });
 
 const TOKEN_KEY = 'access_token';
+const MAX_TRANSIENT_RETRIES = 2;
+
+type RetryableRequestConfig = InternalAxiosRequestConfig & {
+  _retryCount?: number;
+};
 
 const getAccessToken = (): string | null => localStorage.getItem(TOKEN_KEY);
+
+const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const isTransientApiError = (error: AxiosError): boolean => {
+  return (
+    error.code === 'ERR_NETWORK' ||
+    error.code === 'ECONNABORTED' ||
+    error.response?.status === 503
+  );
+};
 
 apiClient.interceptors.request.use((config) => {
   const token = getAccessToken();
@@ -26,7 +45,19 @@ apiClient.interceptors.request.use((config) => {
 
 apiClient.interceptors.response.use(
   (response) => response,
-  (error: AxiosError) => {
+  async (error: AxiosError) => {
+    const config = error.config as RetryableRequestConfig | undefined;
+
+    if (config && isTransientApiError(error)) {
+      config._retryCount = config._retryCount || 0;
+
+      if (config._retryCount < MAX_TRANSIENT_RETRIES) {
+        config._retryCount += 1;
+        await wait(300 * config._retryCount);
+        return apiClient.request(config);
+      }
+    }
+
     if (error.response?.status === 401) {
       // Only redirect if NOT checking auth status (/me endpoint)
       // and NOT already on login page
@@ -339,7 +370,9 @@ export const api = {
     // Face enrollment
     face: {
       list: async (employeeId: number): Promise<BackendFaceEmbedding[]> => {
-        const response = await apiClient.get<BackendFaceEmbedding[]>(`/api/v1/employees/${employeeId}/face`);
+      const response = await apiClient.get<BackendFaceEmbedding[]>(
+        createFaceOperationUrl(FACE_ORCHESTRATOR_URL, `/employees/${employeeId}/face`)
+      );
         return response.data;
       },
 
@@ -348,7 +381,7 @@ export const api = {
         formData.append('file', file);
 
         const response = await apiClient.post<BackendFaceUploadResponse>(
-          `/api/v1/employees/${employeeId}/face`,
+          createFaceOperationUrl(FACE_ORCHESTRATOR_URL, `/employees/${employeeId}/face`),
           formData,
           { headers: { 'Content-Type': 'multipart/form-data' } }
         );
@@ -356,7 +389,7 @@ export const api = {
       },
 
       delete: async (employeeId: number, faceId: number): Promise<void> => {
-        await apiClient.delete(`/api/v1/employees/${employeeId}/face/${faceId}`);
+        await apiClient.delete(createFaceOperationUrl(FACE_ORCHESTRATOR_URL, `/employees/${employeeId}/face/${faceId}`));
       },
     },
   },
@@ -381,7 +414,7 @@ export const api = {
       }
 
       const response = await apiClient.post<BackendRecognizeResponse>(
-        '/api/v1/attendance/recognize',
+        createFaceOperationUrl(FACE_ORCHESTRATOR_URL, '/attendance/recognize'),
         formData,
         { headers: { 'Content-Type': 'multipart/form-data' } }
       );
@@ -394,7 +427,7 @@ export const api = {
       formData.append('confidence', confidence.toString());
 
       const response = await apiClient.post<BackendRecognizeResponse>(
-        '/api/v1/attendance/confirm',
+        createFaceOperationUrl(FACE_ORCHESTRATOR_URL, '/attendance/confirm'),
         formData,
         { headers: { 'Content-Type': 'multipart/form-data' } }
       );

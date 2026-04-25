@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Date, DateTime, Boolean
 from sqlalchemy.sql import func
-from app.database import Base
+from app.db_base import Base
 
 
 class Holiday(Base):
@@ -13,4 +13,3 @@ class Holiday(Base):
     is_cuti = Column(Boolean, default=False)  # Status cuti bersama dari API
     is_excluded = Column(Boolean, default=False)  # True = dihapus user, tidak muncul saat sync
     created_at = Column(DateTime, server_default=func.now())
-

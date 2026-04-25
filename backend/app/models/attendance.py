@@ -1,8 +1,8 @@
 import enum
-from sqlalchemy import Column, Integer, String, Date, DateTime, Float, Enum, ForeignKey
+from sqlalchemy import Column, Integer, String, Date, DateTime, Float, Enum, ForeignKey, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from app.database import Base
+from app.db_base import Base
 
 
 class AttendanceStatus(str, enum.Enum):
@@ -15,8 +15,13 @@ class AttendanceStatus(str, enum.Enum):
 
 class AttendanceLog(Base):
     __tablename__ = "attendance_logs"
+    __table_args__ = (
+        Index("ix_attendance_logs_tenant_date", "tenant_id", "date"),
+        Index("ix_attendance_logs_tenant_employee_date", "tenant_id", "employee_id", "date"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(String(64), nullable=False, server_default="default", index=True)
     employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
     date = Column(Date, nullable=False, index=True)
     check_in_at = Column(DateTime, nullable=True)

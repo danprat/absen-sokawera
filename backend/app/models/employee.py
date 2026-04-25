@@ -1,13 +1,19 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from app.database import Base
+from app.db_base import Base
 
 
 class Employee(Base):
     __tablename__ = "employees"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "external_employee_id", name="uq_employees_tenant_external_id"),
+        Index("ix_employees_tenant_active", "tenant_id", "is_active"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(String(64), nullable=False, server_default="default", index=True)
+    external_employee_id = Column(String(128), nullable=True, index=True)
     nik = Column(String(20), unique=True, nullable=True, index=True)  # NIK (16 digit)
     name = Column(String(100), nullable=False)
     position = Column(String(100), nullable=False)
@@ -24,4 +30,3 @@ class Employee(Base):
     @property
     def face_count(self):
         return len(self.face_embeddings)
-
