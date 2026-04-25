@@ -4,7 +4,44 @@ import { createFaceOperationUrl } from './faceOrchestratorRoutes.mjs';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://aysyhhzfmigjsryaoizu.supabase.co/functions/v1/app-api';
 export const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
 export const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || '';
-export const FACE_ORCHESTRATOR_URL = import.meta.env.VITE_FACE_ORCHESTRATOR_URL || `${API_BASE_URL}/api/v1`;
+const functionUrl = (name: string) => (
+  SUPABASE_URL ? `${SUPABASE_URL.replace(/\/+$/, '')}/functions/v1/${name}` : API_BASE_URL
+);
+
+const AUTH_API_URL = import.meta.env.VITE_AUTH_API_URL || functionUrl('auth-api');
+const PUBLIC_API_URL = import.meta.env.VITE_PUBLIC_API_URL || functionUrl('public-api');
+const EMPLOYEES_API_URL = import.meta.env.VITE_EMPLOYEES_API_URL || functionUrl('employees-api');
+const ATTENDANCE_API_URL = import.meta.env.VITE_ATTENDANCE_API_URL || functionUrl('attendance-api');
+const ADMIN_SETTINGS_API_URL = import.meta.env.VITE_ADMIN_SETTINGS_API_URL || functionUrl('admin-settings-api');
+const ADMIN_REPORTS_API_URL = import.meta.env.VITE_ADMIN_REPORTS_API_URL || functionUrl('admin-reports-api');
+const AUDIT_API_URL = import.meta.env.VITE_AUDIT_API_URL || functionUrl('audit-api');
+const ADMINS_API_URL = import.meta.env.VITE_ADMINS_API_URL || functionUrl('admins-api');
+const GUESTBOOK_API_URL = import.meta.env.VITE_GUESTBOOK_API_URL || functionUrl('guestbook-api');
+const SURVEY_API_URL = import.meta.env.VITE_SURVEY_API_URL || functionUrl('survey-api');
+export const FACE_ORCHESTRATOR_URL = import.meta.env.VITE_FACE_ORCHESTRATOR_URL || functionUrl('face-orchestrator');
+
+const moduleRoutes = [
+  { prefix: '/api/v1/auth', baseURL: AUTH_API_URL },
+  { prefix: '/api/v1/public', baseURL: PUBLIC_API_URL },
+  { prefix: '/api/v1/employees', baseURL: EMPLOYEES_API_URL },
+  { prefix: '/api/v1/admin/attendance', baseURL: ATTENDANCE_API_URL },
+  { prefix: '/api/v1/attendance', baseURL: ATTENDANCE_API_URL },
+  { prefix: '/api/v1/admin/reports', baseURL: ADMIN_REPORTS_API_URL },
+  { prefix: '/api/v1/admin/settings', baseURL: ADMIN_SETTINGS_API_URL },
+  { prefix: '/api/v1/admin/audit-logs', baseURL: AUDIT_API_URL },
+  { prefix: '/api/v1/admin/admins', baseURL: ADMINS_API_URL },
+  { prefix: '/api/v1/admin/guest-book', baseURL: GUESTBOOK_API_URL },
+  { prefix: '/api/v1/guestbook', baseURL: GUESTBOOK_API_URL },
+  { prefix: '/api/v1/admin/survey', baseURL: SURVEY_API_URL },
+  { prefix: '/api/v1/survey', baseURL: SURVEY_API_URL },
+];
+
+const isAbsoluteUrl = (url?: string) => Boolean(url && /^https?:\/\//i.test(url));
+
+const resolveModuleBaseUrl = (url?: string) => {
+  if (!url || isAbsoluteUrl(url)) return undefined;
+  return moduleRoutes.find((route) => url === route.prefix || url.startsWith(`${route.prefix}/`))?.baseURL;
+};
 
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
@@ -34,6 +71,11 @@ const isTransientApiError = (error: AxiosError): boolean => {
 };
 
 apiClient.interceptors.request.use((config) => {
+  const moduleBaseUrl = resolveModuleBaseUrl(config.url);
+  if (moduleBaseUrl) {
+    config.baseURL = moduleBaseUrl;
+  }
+
   const token = getAccessToken();
 
   if (token) {
