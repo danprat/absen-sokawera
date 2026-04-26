@@ -225,6 +225,19 @@ jobs:
           "$python_bin" -m venv venv
           ./venv/bin/python -m pip install --upgrade pip setuptools wheel
           ./venv/bin/python -m pip install -r requirements.txt
+          ./venv/bin/python - <<'PY'
+          import importlib.util
+          import traceback
+
+          for module_name in ("face_recognition_models", "face_recognition"):
+              spec = importlib.util.find_spec(module_name)
+              print(f"{module_name} spec: {spec.origin if spec else 'NOT FOUND'}")
+              try:
+                  __import__(module_name)
+              except BaseException:
+                  traceback.print_exc()
+                  raise
+          PY
           ./venv/bin/python -m alembic upgrade head
 
           cd "$DEPLOY_PATH"
