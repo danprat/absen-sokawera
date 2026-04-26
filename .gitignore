@@ -4,3 +4,4 @@ frontend/.env.local
 supabase/functions/.env
 supabase/functions/.env.local
 supabase/.temp/
+legacy-backups/

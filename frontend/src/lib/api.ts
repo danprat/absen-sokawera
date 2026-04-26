@@ -1,11 +1,11 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { createFaceOperationUrl } from './faceOrchestratorRoutes.mjs';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://aysyhhzfmigjsryaoizu.supabase.co/functions/v1/app-api';
 export const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
 export const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const LEGACY_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 const functionUrl = (name: string) => (
-  SUPABASE_URL ? `${SUPABASE_URL.replace(/\/+$/, '')}/functions/v1/${name}` : API_BASE_URL
+  SUPABASE_URL ? `${SUPABASE_URL.replace(/\/+$/, '')}/functions/v1/${name}` : LEGACY_API_BASE_URL
 );
 
 const AUTH_API_URL = import.meta.env.VITE_AUTH_API_URL || functionUrl('auth-api');
@@ -44,7 +44,7 @@ const resolveModuleBaseUrl = (url?: string) => {
 };
 
 const apiClient: AxiosInstance = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: LEGACY_API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
