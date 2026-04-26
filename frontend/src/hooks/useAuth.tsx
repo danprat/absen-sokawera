@@ -1,12 +1,13 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, LoginRequest } from '@/lib/api';
+import { api, AdminShellSettings, LoginRequest } from '@/lib/api';
 import { toast } from 'sonner';
 
 interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   role: string | null;
+  settings: AdminShellSettings | null;
   isAdmin: boolean;
   login: (credentials: LoginRequest) => Promise<void>;
   logout: () => void;
@@ -22,6 +23,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [role, setRole] = useState<string | null>(null);
+  const [settings, setSettings] = useState<AdminShellSettings | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -30,10 +32,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         const response = await api.auth.getCurrentUser();
         setIsAuthenticated(true);
         setRole(response.role);
+        setSettings(response.settings ?? null);
       } catch (error) {
         localStorage.removeItem('access_token');
         setIsAuthenticated(false);
         setRole(null);
+        setSettings(null);
       } finally {
         setIsLoading(false);
       }
@@ -52,6 +56,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       localStorage.setItem('access_token', response.access_token);
       setIsAuthenticated(true);
       setRole(response.role);
+      setSettings(null);
 
       const roleLabel = response.role === 'kepala_desa' ? 'Kepala Desa' : 'Admin';
       toast.success('Login berhasil', {
@@ -87,6 +92,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     localStorage.removeItem('access_token');
     setIsAuthenticated(false);
     setRole(null);
+    setSettings(null);
 
     toast.info('Logout berhasil', {
       description: 'Anda telah keluar dari sistem',
@@ -101,6 +107,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         isAuthenticated,
         isLoading,
         role,
+        settings,
         isAdmin,
         login,
         logout,

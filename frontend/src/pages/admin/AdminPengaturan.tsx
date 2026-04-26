@@ -65,6 +65,7 @@ export function AdminPengaturan() {
 
   // Admin Management State
   const [admins, setAdmins] = useState<BackendAdmin[]>([]);
+  const [adminsLoaded, setAdminsLoaded] = useState(false);
   const [isLoadingAdmins, setIsLoadingAdmins] = useState(false);
   const [isAdminDialogOpen, setIsAdminDialogOpen] = useState(false);
   const [isEditAdminDialogOpen, setIsEditAdminDialogOpen] = useState(false);
@@ -95,21 +96,30 @@ export function AdminPengaturan() {
   const fetchData = async () => {
     try {
       setIsLoading(true);
-      const [settingsData, holidaysData, schedulesData] = await Promise.all([
-        api.admin.settings.get(),
-        api.admin.settings.holidays.list({ year: selectedYear }),
-        api.admin.settings.schedules.list(),
-      ]);
+      const overview = await api.admin.settings.overview({ year: selectedYear });
+      const settingsData = overview.settings;
+      const holidaysData = overview.holidays;
+      const schedulesData = overview.schedules;
 
       setSettings(settingsData);
       setHolidays(holidaysData.items);
       setSchedules(schedulesData);
+      if (overview.admins) {
+        setAdmins(overview.admins.items);
+        setAdminsLoaded(true);
+      }
       setFormData({
         village_name: settingsData.village_name,
         officer_name: settingsData.officer_name || '',
         late_threshold_minutes: settingsData.late_threshold_minutes,
         face_similarity_threshold: settingsData.face_similarity_threshold || 0.5,
       });
+      window.dispatchEvent(new CustomEvent('admin-settings-updated', {
+        detail: {
+          village_name: settingsData.village_name,
+          logo_url: settingsData.logo_url,
+        },
+      }));
     } catch (error) {
       console.error('Failed to fetch settings:', error);
       toast.error('Gagal memuat pengaturan');
@@ -213,11 +223,14 @@ export function AdminPengaturan() {
   };
 
   // Admin Management Functions
-  const fetchAdmins = async () => {
+  const fetchAdmins = async (force = false) => {
+    if (adminsLoaded && !force) return;
+
     try {
       setIsLoadingAdmins(true);
       const data = await api.admin.admins.list();
       setAdmins(data.items);
+      setAdminsLoaded(true);
     } catch (error) {
       console.error('Failed to fetch admins:', error);
       toast.error('Gagal memuat daftar admin');
@@ -243,7 +256,7 @@ export function AdminPengaturan() {
       toast.success('Admin berhasil ditambahkan');
       setNewAdminData({ username: '', name: '', password: '', role: 'admin' });
       setIsAdminDialogOpen(false);
-      fetchAdmins();
+      fetchAdmins(true);
     } catch (error: unknown) {
       console.error('Failed to create admin:', error);
       const err = error as { response?: { data?: { detail?: string } } };
@@ -277,7 +290,7 @@ export function AdminPengaturan() {
       toast.success('Admin berhasil diupdate');
       setIsEditAdminDialogOpen(false);
       setSelectedAdmin(null);
-      fetchAdmins();
+      fetchAdmins(true);
     } catch (error: unknown) {
       console.error('Failed to update admin:', error);
       const err = error as { response?: { data?: { detail?: string } } };
@@ -296,7 +309,7 @@ export function AdminPengaturan() {
       toast.success('Admin berhasil dihapus');
       setIsDeleteAdminDialogOpen(false);
       setSelectedAdmin(null);
-      fetchAdmins();
+      fetchAdmins(true);
     } catch (error: unknown) {
       console.error('Failed to delete admin:', error);
       const err = error as { response?: { data?: { detail?: string } } };

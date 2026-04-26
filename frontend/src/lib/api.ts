@@ -24,6 +24,7 @@ const moduleRoutes = [
   { prefix: '/api/v1/auth', baseURL: AUTH_API_URL },
   { prefix: '/api/v1/public', baseURL: PUBLIC_API_URL },
   { prefix: '/api/v1/employees', baseURL: EMPLOYEES_API_URL },
+  { prefix: '/api/v1/admin/dashboard', baseURL: ATTENDANCE_API_URL },
   { prefix: '/api/v1/admin/attendance', baseURL: ATTENDANCE_API_URL },
   { prefix: '/api/v1/attendance', baseURL: ATTENDANCE_API_URL },
   { prefix: '/api/v1/admin/reports', baseURL: ADMIN_REPORTS_API_URL },
@@ -124,6 +125,18 @@ export interface LoginResponse {
   access_token: string;
   token_type: string;
   role: string;
+}
+
+export interface AdminShellSettings {
+  village_name: string;
+  logo_url: string | null;
+}
+
+export interface CurrentAdminResponse {
+  username: string;
+  role: string;
+  name: string;
+  settings?: AdminShellSettings;
 }
 
 // Backend Employee response
@@ -343,6 +356,22 @@ export interface BackendAttendanceTodayAdminResponse {
   summary: BackendAttendanceSummary;
 }
 
+export interface BackendAdminDashboardResponse {
+  settings: {
+    village_name: string;
+    logo_url: string | null;
+  };
+  attendance_today: BackendAttendanceTodayAdminResponse;
+  latest_audit_logs: BackendAuditLog[];
+}
+
+export interface BackendAdminSettingsOverviewResponse {
+  settings: BackendWorkSettings;
+  holidays: BackendHolidayListResponse;
+  schedules: BackendDailySchedule[];
+  admins?: BackendAdminListResponse;
+}
+
 // Face embedding types
 export interface BackendFaceEmbedding {
   id: number;
@@ -434,8 +463,8 @@ export const api = {
       return response.data;
     },
 
-    getCurrentUser: async (): Promise<{ username: string; role: string; name: string }> => {
-      const response = await apiClient.get<{ username: string; role: string; name: string }>('/api/v1/auth/me');
+    getCurrentUser: async (): Promise<CurrentAdminResponse> => {
+      const response = await apiClient.get<CurrentAdminResponse>('/api/v1/auth/me');
       return response.data;
     },
 
@@ -577,6 +606,11 @@ export const api = {
   },
 
   admin: {
+    dashboard: async (): Promise<BackendAdminDashboardResponse> => {
+      const response = await apiClient.get<BackendAdminDashboardResponse>('/api/v1/admin/dashboard');
+      return response.data;
+    },
+
     attendance: {
       list: async (params?: { employee_id?: number; start_date?: string; end_date?: string; status?: string; page?: number; page_size?: number }) => {
         const response = await apiClient.get('/api/v1/admin/attendance', { params });
@@ -610,6 +644,11 @@ export const api = {
     },
 
     settings: {
+      overview: async (params?: { year?: number }): Promise<BackendAdminSettingsOverviewResponse> => {
+        const response = await apiClient.get<BackendAdminSettingsOverviewResponse>('/api/v1/admin/settings/overview', { params });
+        return response.data;
+      },
+
       get: async (): Promise<BackendWorkSettings> => {
         const response = await apiClient.get<BackendWorkSettings>('/api/v1/admin/settings');
         return response.data;

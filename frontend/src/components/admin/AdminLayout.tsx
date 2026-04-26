@@ -17,7 +17,6 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
-import { api } from '@/lib/api';
 import { resolveAssetUrl } from '@/lib/assets';
 
 const navItems = [
@@ -33,24 +32,27 @@ const navItems = [
 
 export function AdminLayout() {
   const location = useLocation();
-  const { logout } = useAuth();
+  const { logout, settings } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const [villageName, setVillageName] = useState('Admin Panel');
-  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [villageName, setVillageName] = useState(settings?.village_name || 'Admin Panel');
+  const [logoUrl, setLogoUrl] = useState<string | null>(settings?.logo_url ?? null);
 
-  // Fetch settings on mount
   useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const settings = await api.admin.settings.get();
-        setVillageName(settings.village_name);
-        setLogoUrl(settings.logo_url);
-      } catch (error) {
-        console.error('Failed to fetch settings:', error);
-      }
+    if (!settings) return;
+    setVillageName(settings.village_name);
+    setLogoUrl(settings.logo_url);
+  }, [settings]);
+
+  useEffect(() => {
+    const handleSettingsUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ village_name?: string; logo_url?: string | null }>).detail;
+      if (detail?.village_name) setVillageName(detail.village_name);
+      if ('logo_url' in (detail || {})) setLogoUrl(detail.logo_url ?? null);
     };
-    fetchSettings();
+
+    window.addEventListener('admin-settings-updated', handleSettingsUpdated);
+    return () => window.removeEventListener('admin-settings-updated', handleSettingsUpdated);
   }, []);
 
   // Check if mobile on mount and resize

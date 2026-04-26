@@ -8,6 +8,7 @@ from app.db import Base
 from app.face.models import FaceClient
 from app.face.models import FaceSubject
 from app.face.models import FaceTemplate
+from app.face import api as face_api_module
 from app.face.api import (
     FaceClientContext,
     create_subject,
@@ -146,6 +147,32 @@ def test_list_subject_faces_returns_local_urls():
     result = asyncio.run(list_subject_faces(subject_id=subject.id, db=db, client=context("tenant-a")))
 
     assert result[0].photo_url == "/uploads/face/tenant-a/subjects/1/faces/test.jpg"
+
+
+def test_list_face_counts_returns_bulk_counts_for_current_tenant_only():
+    db = make_session()
+    tenant_a_subject = FaceSubject(tenant_id="tenant-a", external_subject_id="EMP-1", display_name="Ani")
+    tenant_a_empty_subject = FaceSubject(tenant_id="tenant-a", external_subject_id="EMP-2", display_name="Budi")
+    tenant_b_subject = FaceSubject(tenant_id="tenant-b", external_subject_id="EMP-1", display_name="Cici")
+    db.add_all([tenant_a_subject, tenant_a_empty_subject, tenant_b_subject])
+    db.commit()
+    db.refresh(tenant_a_subject)
+    db.refresh(tenant_a_empty_subject)
+    db.refresh(tenant_b_subject)
+    db.add_all([
+        FaceTemplate(tenant_id="tenant-a", subject_id=tenant_a_subject.id, embedding=b"1" * 512, photo_url="/a.jpg"),
+        FaceTemplate(tenant_id="tenant-a", subject_id=tenant_a_subject.id, embedding=b"2" * 512, photo_url="/b.jpg"),
+        FaceTemplate(tenant_id="tenant-b", subject_id=tenant_b_subject.id, embedding=b"3" * 512, photo_url="/c.jpg"),
+    ])
+    db.commit()
+
+    handler = getattr(face_api_module, "list_face_counts", None)
+    assert handler is not None
+
+    result = handler(external_subject_ids="EMP-1,EMP-2", db=db, client=context("tenant-a"))
+
+    counts = {item.external_subject_id: item.face_count for item in result.items}
+    assert counts == {"EMP-1": 2, "EMP-2": 0}
 
 
 def test_delete_face_template_removes_storage_object(monkeypatch):

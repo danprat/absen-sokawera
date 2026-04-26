@@ -102,6 +102,44 @@ async function getFaceCountForEmployee(employeeId: number): Promise<number> {
   }
 }
 
+async function getFaceCountsForEmployees(employeeIds: number[]): Promise<Map<number, number>> {
+  const faceCounts = new Map<number, number>();
+  const uniqueEmployeeIds = [...new Set(employeeIds.filter((id) => Number.isFinite(id)))];
+  const baseUrl = faceServiceBaseUrl();
+  const headers = faceServiceHeaders();
+  if (!baseUrl || !headers || uniqueEmployeeIds.length === 0) return faceCounts;
+
+  try {
+    const countsUrl = new URL(`${baseUrl}/api/v1/subjects/face-counts`);
+    countsUrl.searchParams.set("external_subject_ids", uniqueEmployeeIds.map(String).join(","));
+    const response = await fetch(countsUrl, { headers });
+
+    if (response.ok) {
+      const payload = await response.json();
+      const items = Array.isArray(payload?.items) ? payload.items : [];
+      for (const item of items) {
+        const employeeId = Number(item.external_subject_id);
+        if (Number.isFinite(employeeId)) {
+          faceCounts.set(employeeId, Number(item.face_count) || 0);
+        }
+      }
+      return faceCounts;
+    }
+
+    if (![404, 405, 422].includes(response.status)) {
+      console.warn(`Bulk face count lookup failed: ${response.status}`);
+      return faceCounts;
+    }
+  } catch (error) {
+    console.warn("Bulk face count lookup failed", error);
+  }
+
+  await Promise.all(uniqueEmployeeIds.map(async (employeeId) => {
+    faceCounts.set(employeeId, await getFaceCountForEmployee(employeeId));
+  }));
+  return faceCounts;
+}
+
 function parseBool(value: string | null) {
   if (value === null || value === undefined || value === "") return undefined;
   return value === "true" || value === "1";
@@ -424,17 +462,18 @@ async function publicSettings() {
 }
 
 async function attendanceToday(adminShape = false) {
-  const { data: employees } = await supabase
-    .from("employees")
-    .select("id, name, position, photo_url, is_active")
-    .eq("is_active", true)
-    .order("name");
-
-  const { data: logs } = await supabase
-    .from("attendance_logs")
-    .select("*")
-    .eq("date", todayIso())
-    .order("check_in_at", { ascending: false });
+  const [{ data: employees }, { data: logs }] = await Promise.all([
+    supabase
+      .from("employees")
+      .select("id, name, position, photo_url, is_active")
+      .eq("is_active", true)
+      .order("name"),
+    supabase
+      .from("attendance_logs")
+      .select("id, employee_id, check_in_at, check_out_at, status")
+      .eq("date", todayIso())
+      .order("check_in_at", { ascending: false }),
+  ]);
 
   const employeeById = new Map((employees || []).map((employee) => [employee.id, employee]));
   const items = (logs || []).map((att) => {
@@ -465,6 +504,43 @@ async function attendanceToday(adminShape = false) {
   return { items, summary };
 }
 
+async function dashboardSettings() {
+  const { data } = await supabase
+    .from("work_settings")
+    .select("village_name, logo_url")
+    .order("id")
+    .limit(1)
+    .maybeSingle();
+  return {
+    village_name: data?.village_name || "Desa",
+    logo_url: data?.logo_url ?? null,
+  };
+}
+
+async function latestAuditLogs(limit = 5) {
+  const { data } = await supabase
+    .from("audit_logs")
+    .select("id, action, entity_type, entity_id, description, performed_by, details, created_at")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  return data || [];
+}
+
+async function adminDashboard(req: Request) {
+  await requireAdmin(req);
+  const [attendance, settings, logs] = await Promise.all([
+    attendanceToday(true),
+    dashboardSettings(),
+    latestAuditLogs(5),
+  ]);
+
+  return json({
+    settings,
+    attendance_today: attendance,
+    latest_audit_logs: logs,
+  });
+}
+
 async function listEmployees(url: URL) {
   const page = intParam(url, "page", 1);
   const pageSize = intParam(url, "page_size", 10);
@@ -473,20 +549,20 @@ async function listEmployees(url: URL) {
   const search = url.searchParams.get("search");
   const isActive = parseBool(url.searchParams.get("is_active"));
 
-  let query = supabase.from("employees").select("*", { count: "exact" });
+  let query = supabase
+    .from("employees")
+    .select("id, tenant_id, nik, name, position, phone, address, photo_url, is_active, created_at, updated_at", { count: "exact" });
   if (isActive !== undefined) query = query.eq("is_active", isActive);
   if (search) query = query.or(`name.ilike.%${search}%,nik.ilike.%${search}%,position.ilike.%${search}%`);
 
   const { data, count, error } = await query.order("name").range(from, to);
   if (error) return bad(error.message, 500);
 
-  const faceCounts = new Map<number, number>();
-  await Promise.all((data || []).map(async (employee) => {
-    faceCounts.set(employee.id, await getFaceCountForEmployee(employee.id));
-  }));
+  const employees = data || [];
+  const faceCounts = await getFaceCountsForEmployees(employees.map((employee) => Number(employee.id)));
 
   return json({
-    items: (data || []).map((employee) => ({ ...employee, face_count: faceCounts.get(employee.id) || 0 })),
+    items: employees.map((employee) => ({ ...employee, face_count: faceCounts.get(employee.id) || 0 })),
     total: count || 0,
     page,
     page_size: pageSize,
@@ -679,18 +755,23 @@ async function monthlyReport(url: URL) {
   const start = `${year}-${String(month).padStart(2, "0")}-01`;
   const end = `${year}-${String(month).padStart(2, "0")}-${String(daysInMonth(year, month)).padStart(2, "0")}`;
 
-  const { data: employees, error: employeeError } = await supabase
-    .from("employees")
-    .select("id, name, nik, position")
-    .eq("is_active", true)
-    .order("name");
-  if (employeeError) return bad(employeeError.message, 500);
+  const [
+    { data: employees, error: employeeError },
+    { data: logs, error: logsError },
+  ] = await Promise.all([
+    supabase
+      .from("employees")
+      .select("id, name, nik, position")
+      .eq("is_active", true)
+      .order("name"),
+    supabase
+      .from("attendance_logs")
+      .select("employee_id, status, check_out_at")
+      .gte("date", start)
+      .lte("date", end),
+  ]);
 
-  const { data: logs, error: logsError } = await supabase
-    .from("attendance_logs")
-    .select("*")
-    .gte("date", start)
-    .lte("date", end);
+  if (employeeError) return bad(employeeError.message, 500);
   if (logsError) return bad(logsError.message, 500);
 
   const logsByEmployee = new Map<number, any[]>();
@@ -747,9 +828,13 @@ async function exportMonthlyReport(req: Request, url: URL) {
   return csvResponse(`rekap-absensi-${report.month}-${report.year}.csv`, rows);
 }
 
-async function settingsGet() {
+async function workSettingsData() {
   const { data } = await supabase.from("work_settings").select("*").order("id").limit(1).maybeSingle();
-  return json(data || { id: 1, village_name: "Desa" });
+  return data || { id: 1, village_name: "Desa" };
+}
+
+async function settingsGet() {
+  return json(await workSettingsData());
 }
 
 async function settingsUpdate(req: Request) {
@@ -794,7 +879,7 @@ async function deleteSettingAsset(req: Request, field: "logo_url" | "background_
   return json({ message: "Berhasil dihapus" });
 }
 
-async function holidays(url: URL, excluded = false) {
+async function holidaysData(url: URL, excluded = false) {
   let query = supabase.from("holidays").select("*", { count: "exact" });
   const year = url.searchParams.get("year");
   if (year) {
@@ -803,7 +888,11 @@ async function holidays(url: URL, excluded = false) {
   query = query.eq("is_excluded", excluded);
   const { data, count, error } = await query.order("date");
   if (error) return bad(error.message, 500);
-  return json({ items: data || [], total: count || 0 });
+  return { items: data || [], total: count || 0 };
+}
+
+async function holidays(url: URL, excluded = false) {
+  return json(await holidaysData(url, excluded));
 }
 
 async function createHoliday(req: Request) {
@@ -914,9 +1003,13 @@ async function syncHolidays(req: Request, url: URL) {
   });
 }
 
-async function schedulesList() {
+async function schedulesData() {
   const { data } = await supabase.from("daily_work_schedules").select("*").order("day_of_week");
-  return json(data || []);
+  return data || [];
+}
+
+async function schedulesList() {
+  return json(await schedulesData());
 }
 
 async function schedulesUpdate(req: Request) {
@@ -942,9 +1035,30 @@ async function listAuditLogs(url: URL) {
   return json({ items: data || [], total: count || 0, page, page_size: pageSize });
 }
 
-async function listAdmins() {
+async function adminsData() {
   const { data } = await supabase.from("admins").select("id, username, name, role, created_at, updated_at").order("username");
-  return json({ items: data || [], total: data?.length || 0 });
+  return { items: data || [], total: data?.length || 0 };
+}
+
+async function listAdmins() {
+  return json(await adminsData());
+}
+
+async function settingsOverview(req: Request, url: URL) {
+  const admin = await requireAdmin(req);
+  const [settings, holidayList, schedules, admins] = await Promise.all([
+    workSettingsData(),
+    holidaysData(url),
+    schedulesData(),
+    admin.role === "admin" ? adminsData() : Promise.resolve(undefined),
+  ]);
+
+  return json({
+    settings,
+    holidays: holidayList,
+    schedules,
+    admins,
+  });
 }
 
 async function createAdmin(req: Request) {
@@ -1270,7 +1384,12 @@ export async function handleAppRequest(req: Request, allowedPrefixes?: string[],
 
   if (path === "/api/v1/auth/me" && method === "GET") {
     const admin = await requireAdmin(req);
-    return json({ username: admin.username, role: admin.role, name: admin.name });
+    return json({
+      username: admin.username,
+      role: admin.role,
+      name: admin.name,
+      settings: await dashboardSettings(),
+    });
   }
   if (path === "/api/v1/auth/logout" && method === "POST") return json({ message: "Logout berhasil" });
   if (path === "/api/v1/auth/change-password" && method === "PATCH") {
@@ -1296,6 +1415,7 @@ export async function handleAppRequest(req: Request, allowedPrefixes?: string[],
 
   if (path === "/api/v1/attendance/today" && method === "GET") return json(await attendanceToday(false));
   if (path === "/api/v1/attendance/confirm" && method === "POST") return confirmAttendance(req);
+  if (path === "/api/v1/admin/dashboard" && method === "GET") return adminDashboard(req);
   if (path === "/api/v1/admin/attendance" && method === "GET") {
     await requireAdmin(req);
     return listAttendance(url);
@@ -1313,6 +1433,7 @@ export async function handleAppRequest(req: Request, allowedPrefixes?: string[],
   }
   if (path === "/api/v1/admin/reports/export" && method === "GET") return exportMonthlyReport(req, url);
 
+  if (path === "/api/v1/admin/settings/overview" && method === "GET") return settingsOverview(req, url);
   if (path === "/api/v1/admin/settings" && method === "GET") {
     await requireAdmin(req);
     return settingsGet();

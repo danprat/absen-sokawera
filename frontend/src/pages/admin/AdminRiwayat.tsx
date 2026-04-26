@@ -29,7 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { api, BackendMonthlyReportItem, BackendEmployee } from '@/lib/api';
+import { api, BackendMonthlyReportItem } from '@/lib/api';
 import { toast } from 'sonner';
 
 const months = [
@@ -79,7 +79,6 @@ export function AdminRiwayat() {
   const [selectedEmployee, setSelectedEmployee] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [reportData, setReportData] = useState<BackendMonthlyReportItem[]>([]);
-  const [employees, setEmployees] = useState<BackendEmployee[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [exportFormat, setExportFormat] = useState<'csv' | 'pdf' | 'xlsx'>('pdf');
@@ -90,19 +89,6 @@ export function AdminRiwayat() {
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
 
   const years = Array.from({ length: 5 }, (_, i) => String(currentDate.getFullYear() - i));
-
-  // Fetch employees for filter
-  useEffect(() => {
-    const fetchEmployees = async () => {
-      try {
-        const response = await api.employees.list({ page_size: 100, is_active: true });
-        setEmployees(response.items);
-      } catch (error) {
-        console.error('Failed to fetch employees:', error);
-      }
-    };
-    fetchEmployees();
-  }, []);
 
   const fetchReport = async () => {
     try {
@@ -319,9 +305,9 @@ export function AdminRiwayat() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Semua Pegawai</SelectItem>
-                  {employees.map((emp) => (
-                    <SelectItem key={emp.id} value={String(emp.id)}>
-                      {emp.name}
+                  {reportData.map((employee) => (
+                    <SelectItem key={employee.employee_id} value={String(employee.employee_id)}>
+                      {employee.employee_name}
                     </SelectItem>
                   ))}
                 </SelectContent>

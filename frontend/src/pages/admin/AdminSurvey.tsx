@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, type ComponentType, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Star, Download, Loader2, Calendar, BarChart3, MessageSquare,
@@ -60,7 +60,17 @@ import { cn } from '@/lib/utils';
 
 // --- Components for UI/UX Pro Max ---
 
-const StatCard = ({ title, value, icon: Icon, trend, color, delay = 0, tooltip }: any) => (
+interface StatCardProps {
+  title: string;
+  value: ReactNode;
+  icon: ComponentType<{ className?: string }>;
+  trend?: number;
+  color: string;
+  delay?: number;
+  tooltip?: ReactNode;
+}
+
+const StatCard = ({ title, value, icon: Icon, trend, color, delay = 0, tooltip }: StatCardProps) => (
   <motion.div
     initial={{ opacity: 0, y: 20 }}
     animate={{ opacity: 1, y: 0 }}

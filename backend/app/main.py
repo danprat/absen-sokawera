@@ -63,5 +63,11 @@ def root():
     return {
         "message": "Face Recognition Service API",
         "version": "1.0.0",
-        "routes": ["/api/v1/subjects", "/api/v1/detect", "/api/v1/recognize", "/health"],
+        "routes": [
+            "/api/v1/subjects",
+            "/api/v1/subjects/face-counts",
+            "/api/v1/detect",
+            "/api/v1/recognize",
+            "/health",
+        ],
     }

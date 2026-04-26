@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useCallback, useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Plus, Search, Edit2, Trash2, Camera, UserCheck, UserX, Loader2, Upload, X, ScanFace } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -56,7 +56,7 @@ export function AdminPegawai() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const fetchEmployees = async () => {
+  const fetchEmployees = useCallback(async () => {
     try {
       setIsLoading(true);
       const response = await api.employees.list({ search: search || undefined });
@@ -67,12 +67,16 @@ export function AdminPegawai() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [search]);
 
   useEffect(() => {
-    fetchEmployees();
-    
-    // Cleanup camera on unmount
+    const timer = window.setTimeout(() => {
+      fetchEmployees();
+    }, search ? 300 : 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchEmployees, search]);
+
+  useEffect(() => {
     return () => {
       if (cameraStream) {
         cameraStream.getTracks().forEach((track) => {
@@ -81,14 +85,7 @@ export function AdminPegawai() {
         });
       }
     };
-  }, []);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchEmployees();
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [search]);
+  }, [cameraStream]);
 
   const fetchFacePhotos = async (employeeId: number) => {
     try {

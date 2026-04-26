@@ -3,12 +3,15 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.face.models import FaceSubject
 from app.face.models import FaceTemplate
 from app.face.schemas import (
+    FaceCountItem,
+    FaceCountListResponse,
     FaceDetectResponse,
     FaceRecognizeResponse,
     FaceSubjectCreate,
@@ -135,6 +138,43 @@ def list_subjects(
     if external_subject_id:
         query = query.filter(FaceSubject.external_subject_id == external_subject_id)
     return query.order_by(FaceSubject.display_name).all()
+
+
+@router.get("/subjects/face-counts", response_model=FaceCountListResponse)
+def list_face_counts(
+    external_subject_ids: Optional[str] = None,
+    db: Session = Depends(get_db),
+    client: FaceClientContext = Depends(get_current_face_client),
+):
+    external_ids = [
+        item.strip()
+        for item in (external_subject_ids or "").split(",")
+        if item.strip()
+    ]
+    subject_query = db.query(FaceSubject).filter(FaceSubject.tenant_id == client.tenant_id)
+    if external_ids:
+        subject_query = subject_query.filter(FaceSubject.external_subject_id.in_(external_ids))
+    subjects = subject_query.all()
+
+    subject_ids = [subject.id for subject in subjects]
+    counts_by_subject_id: dict[int, int] = {}
+    if subject_ids:
+        rows = db.query(FaceTemplate.subject_id, func.count(FaceTemplate.id)).filter(
+            FaceTemplate.tenant_id == client.tenant_id,
+            FaceTemplate.subject_id.in_(subject_ids),
+        ).group_by(FaceTemplate.subject_id).all()
+        counts_by_subject_id = {int(subject_id): int(count) for subject_id, count in rows}
+
+    return FaceCountListResponse(
+        items=[
+            FaceCountItem(
+                external_subject_id=subject.external_subject_id,
+                subject_id=subject.id,
+                face_count=counts_by_subject_id.get(subject.id, 0),
+            )
+            for subject in subjects
+        ],
+    )
 
 
 @router.patch("/subjects/{subject_id}", response_model=FaceSubjectResponse)

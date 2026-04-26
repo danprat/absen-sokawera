@@ -56,6 +56,16 @@ class FaceTemplateUploadResponse(BaseModel):
     message: str
 
 
+class FaceCountItem(BaseModel):
+    external_subject_id: str
+    subject_id: int
+    face_count: int
+
+
+class FaceCountListResponse(BaseModel):
+    items: list[FaceCountItem]
+
+
 class FaceDetectResponse(BaseModel):
     detected: bool
 

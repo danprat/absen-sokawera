@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Users, UserCheck, Clock, UserX, TrendingUp, Activity, Loader2, Building2, Calendar } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { api, BackendAttendanceTodayAdminResponse, BackendAuditLog } from '@/lib/api';
+import { api, BackendAuditLog } from '@/lib/api';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { resolveAssetUrl } from '@/lib/assets';
@@ -52,12 +52,8 @@ export function AdminDashboard() {
       try {
         if (isMounted) setIsLoading(true);
 
-        // Parallel data fetching for performance
-        const [attendanceData, logsData, settings] = await Promise.all([
-          api.admin.attendance.today(),
-          api.admin.auditLogs.list({ page_size: 5 }),
-          api.admin.settings.get()
-        ]);
+        const dashboard = await api.admin.dashboard();
+        const attendanceData = dashboard.attendance_today;
 
         if (!isMounted) return;
 
@@ -70,9 +66,12 @@ export function AdminDashboard() {
           sick: attendanceData.summary.sick,
         });
 
-        setActivityLogs(logsData.items);
-        setVillageName(settings.village_name);
-        setLogoUrl(settings.logo_url);
+        setActivityLogs(dashboard.latest_audit_logs);
+        setVillageName(dashboard.settings.village_name);
+        setLogoUrl(dashboard.settings.logo_url);
+        window.dispatchEvent(new CustomEvent('admin-settings-updated', {
+          detail: dashboard.settings,
+        }));
 
       } catch (error: unknown) {
         // Ignore aborted requests (happens on unmount/navigation)
