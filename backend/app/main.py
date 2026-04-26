@@ -10,7 +10,7 @@ import os
 from app.config import get_settings
 from app.database import engine, Base, SessionLocal
 from app.routers import (
-    auth, employees, face, attendance, admin_attendance,
+    auth, employees, face, face_core, attendance, admin_attendance,
     reports, settings, audit, public,
     guestbook, survey, admin_guestbook, admin_survey,
     admin_management
@@ -55,6 +55,7 @@ API_PREFIX = "/api/v1"
 app.include_router(auth.router, prefix=API_PREFIX)
 app.include_router(employees.router, prefix=API_PREFIX)
 app.include_router(face.router, prefix=API_PREFIX)
+app.include_router(face_core.router, prefix=API_PREFIX)
 app.include_router(attendance.router, prefix=API_PREFIX)
 app.include_router(admin_attendance.router, prefix=API_PREFIX)
 app.include_router(reports.router, prefix=API_PREFIX)

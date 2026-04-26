@@ -14,6 +14,32 @@ test("maps attendance recognize to the FastAPI backend path", () => {
   assert.equal(target, "/api/v1/attendance/recognize");
 });
 
+test("maps agnostic face recognize and detect routes", () => {
+  assert.equal(
+    buildBackendPath(new URL("http://localhost:54321/functions/v1/face-orchestrator/recognize")),
+    "/api/v1/recognize",
+  );
+  assert.equal(
+    buildBackendPath(new URL("http://localhost:54321/functions/v1/face-orchestrator/detect")),
+    "/api/v1/detect",
+  );
+});
+
+test("maps agnostic subject and face routes", () => {
+  assert.equal(
+    buildBackendPath(new URL("http://localhost:54321/functions/v1/face-orchestrator/subjects")),
+    "/api/v1/subjects",
+  );
+  assert.equal(
+    buildBackendPath(new URL("http://localhost:54321/functions/v1/face-orchestrator/subjects/7/faces")),
+    "/api/v1/subjects/7/faces",
+  );
+  assert.equal(
+    buildBackendPath(new URL("http://localhost:54321/functions/v1/face-orchestrator/faces/11")),
+    "/api/v1/faces/11",
+  );
+});
+
 test("maps face enrollment with employee id to the FastAPI backend path", () => {
   const target = buildBackendPath(
     new URL("http://localhost:54321/functions/v1/face-orchestrator/employees/42/face/9"),

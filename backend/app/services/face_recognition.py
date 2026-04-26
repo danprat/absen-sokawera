@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.models.employee import Employee
 from app.models.face_embedding import FaceEmbedding
+from app.models.face_subject import FaceSubject
+from app.models.face_template import FaceTemplate
 
 try:
     import face_recognition
@@ -34,8 +36,10 @@ class FaceRecognitionService:
 
         # === OPTIMIZATION 1: Memory Cache ===
         self._embedding_cache: Dict[int, List[dict]] = {}  # employee_id -> list of embeddings
+        self._template_cache: Dict[str, Dict[int, List[dict]]] = {}
         self._cache_version: int = 0
         self._cache_initialized: bool = False
+        self._template_cache_initialized: set[str] = set()
 
     @property
     def debug_logging(self) -> bool:
@@ -129,6 +133,16 @@ class FaceRecognitionService:
         """Invalidate cache to force refresh on next match."""
         self._cache_initialized = False
         self._debug("[Cache] Invalidated")
+
+    def invalidate_template_cache(self, tenant_id: Optional[str] = None):
+        """Invalidate agnostic face-template cache."""
+        if tenant_id:
+            self._template_cache.pop(tenant_id, None)
+            self._template_cache_initialized.discard(tenant_id)
+        else:
+            self._template_cache = {}
+            self._template_cache_initialized.clear()
+        self._debug("[Template Cache] Invalidated")
     
     def detect_face(self, image_data: bytes) -> bool:
         """Detect if there's a face in the image using deep learning."""
@@ -332,6 +346,97 @@ class FaceRecognitionService:
             self._debug(f"No match found. Best score was {best_score:.3f} (threshold: {threshold})")
         
         return best_match, best_score
+
+    def refresh_template_cache(self, db: Session, tenant_id: str) -> int:
+        if not self.enabled:
+            return 0
+
+        try:
+            templates = db.query(FaceTemplate).join(FaceSubject).filter(
+                FaceTemplate.tenant_id == tenant_id,
+                FaceSubject.tenant_id == tenant_id,
+                FaceSubject.is_active == True,
+            ).all()
+
+            expected_size = 128 * 4
+            tenant_cache: Dict[int, List[dict]] = {}
+            for template in templates:
+                if not template.embedding or len(template.embedding) != expected_size:
+                    continue
+                tenant_cache.setdefault(template.subject_id, []).append({
+                    "id": template.id,
+                    "embedding": np.frombuffer(template.embedding, dtype=np.float32).copy(),
+                    "subject": template.subject,
+                    "is_primary": template.is_primary,
+                })
+
+            self._template_cache[tenant_id] = tenant_cache
+            self._template_cache_initialized.add(tenant_id)
+            return sum(len(value) for value in tenant_cache.values())
+        except Exception as e:
+            print(f"[Template Cache] Refresh error: {e}")
+            return 0
+
+    def find_matching_subject(
+        self,
+        image_data: bytes,
+        db: Session,
+        tenant_id: str,
+        threshold: float = 0.50,
+    ) -> Tuple[Optional[FaceSubject], float, Optional[int]]:
+        if not self.enabled:
+            subject = db.query(FaceSubject).filter(
+                FaceSubject.tenant_id == tenant_id,
+                FaceSubject.is_active == True,
+            ).first()
+            if subject:
+                template = db.query(FaceTemplate).filter(
+                    FaceTemplate.tenant_id == tenant_id,
+                    FaceTemplate.subject_id == subject.id,
+                ).first()
+                return subject, 0.90, template.id if template else None
+            return None, 0.0, None
+
+        new_embedding_bytes = self.generate_embedding(image_data)
+        if new_embedding_bytes is None:
+            return None, 0.0, None
+        new_embedding = np.frombuffer(new_embedding_bytes, dtype=np.float32)
+
+        if tenant_id not in self._template_cache_initialized:
+            self.refresh_template_cache(db, tenant_id)
+
+        tenant_cache = self._template_cache.get(tenant_id, {})
+        if not tenant_cache:
+            return None, 0.0, None
+
+        all_embeddings = []
+        metadata = []
+        for subject_id, template_list in tenant_cache.items():
+            for template_data in template_list:
+                all_embeddings.append(template_data["embedding"])
+                metadata.append({
+                    "subject_id": subject_id,
+                    "subject": template_data["subject"],
+                    "face_id": template_data["id"],
+                })
+
+        if not all_embeddings:
+            return None, 0.0, None
+
+        distances = self._batch_compare(new_embedding, np.array(all_embeddings))
+        similarities = np.maximum(0, 1 - (distances / 1.0))
+
+        best_subject: Optional[FaceSubject] = None
+        best_face_id: Optional[int] = None
+        best_score = 0.0
+        for meta, similarity in zip(metadata, similarities):
+            if similarity > best_score:
+                best_score = float(similarity)
+                best_face_id = meta["face_id"]
+                if similarity >= threshold:
+                    best_subject = meta["subject"]
+
+        return best_subject, best_score, best_face_id
 
 
 face_recognition_service = FaceRecognitionService()

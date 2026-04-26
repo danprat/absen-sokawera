@@ -6,7 +6,7 @@ import sys
 from sqlalchemy import text
 from app.database import engine, Base
 from app.models import (
-    Admin, Employee, FaceEmbedding, AttendanceLog,
+    Admin, Employee, FaceEmbedding, FaceClient, FaceSubject, FaceTemplate, AttendanceLog,
     WorkSettings, Holiday, AuditLog, GuestBookEntry,
     GuestBookMeetingTarget
 )
@@ -37,6 +37,7 @@ def verify_tables():
     """Verify all expected tables exist"""
     expected_tables = [
         'admins', 'employees', 'face_embeddings',
+        'face_clients', 'face_subjects', 'face_templates',
         'attendance_logs', 'work_settings', 'holidays', 'audit_logs',
         'daily_work_schedules', 'guest_book_entries', 'guest_book_meeting_targets',
         'survey_questions', 'survey_responses'

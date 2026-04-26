@@ -7,7 +7,7 @@ import {
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
 };
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
@@ -62,7 +62,10 @@ Deno.serve(async (req: Request) => {
   if (contentType) headers.set("content-type", contentType);
   if (authorization) headers.set("authorization", authorization);
   if (accept) headers.set("accept", accept);
-  if (faceServiceApiKey) headers.set("x-face-service-key", faceServiceApiKey);
+  if (faceServiceApiKey) {
+    headers.set("x-face-service-key", faceServiceApiKey);
+    headers.set("x-face-app-key", faceServiceApiKey);
+  }
 
   const body = req.method === "GET" ? undefined : await req.arrayBuffer();
 

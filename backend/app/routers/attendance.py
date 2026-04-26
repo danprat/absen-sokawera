@@ -10,7 +10,7 @@ from app.models.attendance import AttendanceLog
 from app.models.employee import Employee
 from app.schemas.attendance import AttendanceRecognizeResponse, AttendanceTodayItem, AttendanceTodayResponse
 from app.services.face_recognition import face_recognition_service
-from app.services.attendance import attendance_service, jakarta_now
+from app.services.attendance import attendance_service
 from app.utils.face_service_auth import require_face_service_key
 from app.utils.cache import (
     cache,
@@ -87,48 +87,12 @@ async def recognize_face_only(
             detail="Wajah tidak terdeteksi atau tidak dikenali"
         )
 
-    # Validate attendance eligibility without saving
-    from datetime import time
-    now = jakarta_now()
-
-    if not attendance_service.is_workday(db, now.date()):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Hari ini bukan hari kerja"
-        )
-
-    if attendance_service.is_holiday(db, now.date()):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Hari ini adalah hari libur"
-        )
-
     # Check current attendance status
     existing_attendance = attendance_service.get_today_attendance(db, employee.id)
     attendance_status = attendance_service.get_attendance_status(existing_attendance)
 
-    # Check if employee has already checked in
-    has_checked_in = existing_attendance is not None and existing_attendance.check_in_at is not None
-
-    # Use daily schedule instead of global settings
-    schedule = attendance_service.get_effective_schedule(db, now.date())
-    mode = attendance_service.get_attendance_mode(now.time(), schedule, has_checked_in)
-
-    if mode is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Di luar jam absensi ({schedule['check_in_start'].strftime('%H:%M')}-{time(23, 59).strftime('%H:%M')})"
-        )
-
-    # Prepare response message based on status
-    if attendance_status == "sudah_lengkap":
-        message = "Anda sudah absen lengkap hari ini (check-in & checkout)"
-    elif attendance_status == "sudah_check_in":
-        message = "Wajah dikenali. Klik 'Pulang' untuk checkout."
-    else:  # belum_absen
-        message = "Wajah dikenali. Klik 'Hadir' untuk konfirmasi absensi."
-
-    # Return employee data without saving
+    # Face service is intentionally domain-agnostic. Workday, holiday, and
+    # attendance mode checks belong to the calling application.
     return AttendanceRecognizeResponse(
         employee={
             "id": employee.id,
@@ -137,7 +101,7 @@ async def recognize_face_only(
             "photo": employee.photo_url
         },
         attendance=None,  # No attendance saved yet
-        message=message,
+        message="Wajah dikenali",
         confidence=round(confidence * 100, 1),
         attendance_status=attendance_status
     )

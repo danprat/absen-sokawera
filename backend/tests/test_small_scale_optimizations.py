@@ -2,6 +2,7 @@ import asyncio
 from datetime import date, time
 
 from fastapi import HTTPException
+from starlette.requests import Request
 
 from app.config import get_settings
 from app.models.daily_schedule import DailyWorkSchedule
@@ -14,6 +15,7 @@ from app.models.work_settings import WorkSettings
 from app.routers.admin_survey import create_question, delete_question, reorder_questions, update_question
 from app.routers.face import delete_face, refresh_face_embedding_cache, upload_face
 from app.routers.attendance import invalidate_attendance_cache
+from app.routers.attendance import recognize_face_only
 from app.routers.settings import (
     create_holiday,
     delete_holiday,
@@ -327,6 +329,14 @@ class FileWriterStub:
         self.data = data
 
 
+class AttendanceImageStub:
+    def __init__(self, data=b"image"):
+        self.data = data
+
+    async def read(self):
+        return self.data
+
+
 def make_schedule(day_of_week: int, is_workday: bool = True):
     return DailyWorkSchedule(
         day_of_week=day_of_week,
@@ -413,6 +423,30 @@ def test_internal_attendance_cache_invalidation_clears_settings_schedule_and_hol
     assert cache.get(f"{DAILY_SCHEDULE_CACHE_KEY}:6") is None
     assert cache.get(f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-04-26") is None
     assert cache.get(PUBLIC_SETTINGS_CACHE_KEY) == {"keep": True}
+
+
+def test_attendance_recognize_no_longer_blocks_on_workday_or_holiday(monkeypatch):
+    employee = Employee(id=5, tenant_id="default", name="Ani", position="Staff", photo_url=None)
+
+    monkeypatch.setattr("app.routers.attendance.attendance_service.get_work_settings", lambda db: WorkSettings(face_similarity_threshold=0.5))
+    monkeypatch.setattr("app.routers.attendance.face_recognition_service.find_matching_employee", lambda image, db, threshold: (employee, 0.88))
+    monkeypatch.setattr("app.routers.attendance.attendance_service.is_workday", lambda db, check_date: (_ for _ in ()).throw(AssertionError("workday must be app responsibility")))
+    monkeypatch.setattr("app.routers.attendance.attendance_service.is_holiday", lambda db, check_date: (_ for _ in ()).throw(AssertionError("holiday must be app responsibility")))
+    monkeypatch.setattr("app.routers.attendance.attendance_service.get_today_attendance", lambda db, employee_id: None)
+    monkeypatch.setattr("app.routers.attendance.attendance_service.get_attendance_status", lambda attendance: "belum_absen")
+
+    response = asyncio.run(
+        recognize_face_only(
+            request=Request({"type": "http", "method": "POST", "path": "/api/v1/attendance/recognize"}),
+            file=AttendanceImageStub(),
+            image_base64=None,
+            db=object(),
+        )
+    )
+
+    assert response.employee["id"] == 5
+    assert response.message == "Wajah dikenali"
+    assert response.attendance_status == "belum_absen"
 
 
 

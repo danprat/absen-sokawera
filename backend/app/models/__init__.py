@@ -1,6 +1,9 @@
 from app.models.admin import Admin
 from app.models.employee import Employee
 from app.models.face_embedding import FaceEmbedding
+from app.models.face_client import FaceClient
+from app.models.face_subject import FaceSubject
+from app.models.face_template import FaceTemplate
 from app.models.attendance import AttendanceLog, AttendanceStatus
 from app.models.work_settings import WorkSettings
 from app.models.holiday import Holiday
@@ -13,6 +16,9 @@ __all__ = [
     "Admin",
     "Employee",
     "FaceEmbedding",
+    "FaceClient",
+    "FaceSubject",
+    "FaceTemplate",
     "AttendanceLog",
     "AttendanceStatus",
     "WorkSettings",

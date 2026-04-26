@@ -14,6 +14,31 @@ export function buildBackendPath(url) {
     return "/api/v1/attendance/confirm";
   }
 
+  if (route === "/recognize") {
+    return "/api/v1/recognize";
+  }
+
+  if (route === "/detect") {
+    return "/api/v1/detect";
+  }
+
+  if (route === "/subjects") {
+    return "/api/v1/subjects";
+  }
+
+  const subjectMatch = route.match(/^\/subjects\/(\d+)(?:\/faces)?$/);
+  if (subjectMatch) {
+    const [, subjectId] = subjectMatch;
+    return route.endsWith("/faces")
+      ? `/api/v1/subjects/${subjectId}/faces`
+      : `/api/v1/subjects/${subjectId}`;
+  }
+
+  const faceMatch = route.match(/^\/faces\/(\d+)$/);
+  if (faceMatch) {
+    return `/api/v1/faces/${faceMatch[1]}`;
+  }
+
   const employeeFaceMatch = route.match(/^\/employees\/(\d+)\/face(?:\/(\d+))?$/);
   if (employeeFaceMatch) {
     const [, employeeId, faceId] = employeeFaceMatch;
@@ -32,6 +57,26 @@ export function getAllowedMethod(backendPath) {
 
   if (backendPath === "/api/v1/attendance/confirm") {
     return "POST";
+  }
+
+  if (backendPath === "/api/v1/recognize" || backendPath === "/api/v1/detect") {
+    return "POST";
+  }
+
+  if (backendPath === "/api/v1/subjects") {
+    return "GET_POST";
+  }
+
+  if (/^\/api\/v1\/subjects\/\d+$/.test(backendPath)) {
+    return "PATCH";
+  }
+
+  if (/^\/api\/v1\/subjects\/\d+\/faces$/.test(backendPath)) {
+    return "GET_POST";
+  }
+
+  if (/^\/api\/v1\/faces\/\d+$/.test(backendPath)) {
+    return "DELETE";
   }
 
   if (/^\/api\/v1\/employees\/\d+\/face$/.test(backendPath)) {
