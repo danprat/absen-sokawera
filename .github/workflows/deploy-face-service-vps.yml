@@ -225,7 +225,7 @@ jobs:
           ./venv/bin/python -m alembic upgrade head
 
           if [ -d "$DEPLOY_PATH/current/backend/uploads" ]; then
-            ./venv/bin/python scripts/migrate_face_uploads_to_supabase.py \
+            PYTHONPATH=. ./venv/bin/python scripts/migrate_face_uploads_to_supabase.py \
               --legacy-root "$DEPLOY_PATH/current/backend"
           fi
 
