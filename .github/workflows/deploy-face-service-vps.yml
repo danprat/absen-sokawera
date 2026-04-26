@@ -240,9 +240,10 @@ jobs:
 
           if command -v pm2 >/dev/null 2>&1; then
             pm2 delete face-recognition || true
-            pm2 start "$DEPLOY_PATH/current/backend/venv/bin/python" \
+            cd "$DEPLOY_PATH/current/backend"
+            pm2 start ./venv/bin/python \
               --name face-recognition \
-              -- -m uvicorn app.main:app --host 127.0.0.1 --port "$APP_PORT" --app-dir "$DEPLOY_PATH/current/backend"
+              -- -m uvicorn app.main:app --host 127.0.0.1 --port "$APP_PORT" --app-dir .
             pm2 save || true
           else
             if [ -f "$DEPLOY_PATH/face-recognition.pid" ]; then
@@ -251,17 +252,32 @@ jobs:
                 kill "$old_pid" 2>/dev/null || true
               fi
             fi
+            cd "$DEPLOY_PATH/current/backend"
             nohup "$DEPLOY_PATH/current/backend/venv/bin/python" \
               -m uvicorn app.main:app \
               --host 127.0.0.1 \
               --port "$APP_PORT" \
-              --app-dir "$DEPLOY_PATH/current/backend" \
+              --app-dir . \
               > "$DEPLOY_PATH/face-recognition.log" 2>&1 &
             echo $! > "$DEPLOY_PATH/face-recognition.pid"
           fi
 
-          sleep 3
-          curl --fail --show-error --silent "http://127.0.0.1:${APP_PORT}/health"
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if curl --fail --show-error --silent "http://127.0.0.1:${APP_PORT}/health"; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Face service did not pass health check." >&2
+          if command -v pm2 >/dev/null 2>&1; then
+            pm2 status || true
+            pm2 logs face-recognition --lines 80 --nostream || true
+          fi
+          if [ -f "$DEPLOY_PATH/face-recognition.log" ]; then
+            tail -n 120 "$DEPLOY_PATH/face-recognition.log" || true
+          fi
+          exit 1
           REMOTE
         env:
           SSH_PORT: ${{ secrets.VPS_SSH_PORT || '22' }}
