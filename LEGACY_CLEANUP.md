@@ -41,6 +41,14 @@ scripts/legacy-cleanup/backup_supabase_face_data.sh ./legacy-backups
 
 The backup directory must be outside the VPS deploy folder and must not be committed.
 
+GitHub Actions manual cleanup:
+
+- Workflow: `Legacy Cleanup Audit`
+- `target=audit` writes a Supabase face-table audit artifact.
+- `target=backup` writes a SQL backup artifact for `face_clients`, `face_subjects`, `face_templates`, and `face_embeddings`.
+- `target=vps-cleanup`, `mode=dry-run` inventories safe VPS cleanup candidates.
+- `target=vps-cleanup`, `mode=execute` requires `confirm_execute=CLEANUP_LEGACY` and only removes candidates listed by `scripts/legacy-cleanup/vps_cleanup_dry_run.sh`.
+
 ## VPS
 
 Protected paths under `/home/monika-face-rec/htdocs/face-rec.monika.id`:

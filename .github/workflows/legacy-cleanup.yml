@@ -1,0 +1,207 @@
+name: Legacy Cleanup Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Cleanup target to run"
+        required: true
+        default: "audit"
+        type: choice
+        options:
+          - audit
+          - backup
+          - vps-cleanup
+      mode:
+        description: "Run mode. execute is only honored by vps-cleanup."
+        required: true
+        default: "dry-run"
+        type: choice
+        options:
+          - dry-run
+          - execute
+      keep_releases:
+        description: "How many VPS releases to keep when target=vps-cleanup"
+        required: true
+        default: "2"
+      confirm_execute:
+        description: "Required for mode=execute: type CLEANUP_LEGACY"
+        required: false
+        default: ""
+
+concurrency:
+  group: legacy-cleanup-audit
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    env:
+      TARGET: ${{ inputs.target }}
+      MODE: ${{ inputs.mode }}
+      KEEP_RELEASES: ${{ inputs.keep_releases }}
+      CONFIRM_EXECUTE: ${{ inputs.confirm_execute }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+      VPS_SSH_PORT: ${{ secrets.VPS_SSH_PORT || '22' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          case "$TARGET" in
+            audit|backup|vps-cleanup) ;;
+            *)
+              echo "Unsupported target: $TARGET" >&2
+              exit 1
+              ;;
+          esac
+
+          case "$MODE" in
+            dry-run|execute) ;;
+            *)
+              echo "Unsupported mode: $MODE" >&2
+              exit 1
+              ;;
+          esac
+
+          if [ "$MODE" = "execute" ]; then
+            if [ "$TARGET" != "vps-cleanup" ]; then
+              echo "execute mode is only available for target=vps-cleanup." >&2
+              exit 1
+            fi
+            if [ "$CONFIRM_EXECUTE" != "CLEANUP_LEGACY" ]; then
+              echo "Type CLEANUP_LEGACY in confirm_execute to run execute mode." >&2
+              exit 1
+            fi
+          fi
+
+          if ! [[ "$KEEP_RELEASES" =~ ^[0-9]+$ ]] || [ "$KEEP_RELEASES" -lt 1 ]; then
+            echo "keep_releases must be a positive integer." >&2
+            exit 1
+          fi
+
+      - name: Install PostgreSQL client
+        if: inputs.target == 'audit' || inputs.target == 'backup'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Validate database secret
+        if: inputs.target == 'audit' || inputs.target == 'backup'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "Missing required secret: DATABASE_URL" >&2
+            exit 1
+          fi
+
+      - name: Run Supabase face cleanup audit
+        if: inputs.target == 'audit'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p legacy-cleanup-results
+          psql "$DATABASE_URL" \
+            --set=ON_ERROR_STOP=1 \
+            --file=scripts/legacy-cleanup/supabase_face_cleanup_audit.sql \
+            --output=legacy-cleanup-results/supabase-face-audit.txt
+
+      - name: Back up Supabase face tables
+        if: inputs.target == 'backup'
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/legacy-cleanup/backup_supabase_face_data.sh legacy-cleanup-results
+
+      - name: Upload database artifact
+        if: inputs.target == 'audit' || inputs.target == 'backup'
+        uses: actions/upload-artifact@v4
+        with:
+          name: legacy-cleanup-${{ inputs.target }}-${{ github.run_id }}
+          path: legacy-cleanup-results/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Validate VPS secrets
+        if: inputs.target == 'vps-cleanup'
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(
+            VPS_HOST
+            VPS_USER
+            VPS_DEPLOY_PATH
+          )
+
+          for name in "${required[@]}"; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing required secret: $name" >&2
+              exit 1
+            fi
+          done
+
+          if [ -z "${VPS_SSH_KEY:-}" ]; then
+            echo "Missing required secret: VPS_SSH_KEY" >&2
+            exit 1
+          fi
+
+      - name: Configure SSH
+        if: inputs.target == 'vps-cleanup'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -4 -T 15 -p "$VPS_SSH_PORT" "$VPS_HOST" >> ~/.ssh/known_hosts || true
+
+      - name: Upload cleanup script
+        if: inputs.target == 'vps-cleanup'
+        shell: bash
+        run: |
+          set -euo pipefail
+          scp -4 -i ~/.ssh/deploy_key -P "$VPS_SSH_PORT" \
+            -o BatchMode=yes \
+            -o ConnectTimeout=30 \
+            -o StrictHostKeyChecking=accept-new \
+            scripts/legacy-cleanup/vps_cleanup_dry_run.sh \
+            "${VPS_USER}@${VPS_HOST}:/tmp/vps_cleanup_dry_run.sh"
+
+      - name: Run VPS cleanup
+        if: inputs.target == 'vps-cleanup'
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_mode="--dry-run"
+          if [ "$MODE" = "execute" ]; then
+            remote_mode="--execute"
+          fi
+
+          ssh -4 -i ~/.ssh/deploy_key -p "$VPS_SSH_PORT" \
+            -o BatchMode=yes \
+            -o ConnectTimeout=30 \
+            -o StrictHostKeyChecking=accept-new \
+            "${VPS_USER}@${VPS_HOST}" \
+            "DEPLOY_PATH='${VPS_DEPLOY_PATH}' KEEP_RELEASES='${KEEP_RELEASES}' bash /tmp/vps_cleanup_dry_run.sh '${remote_mode}'" \
+            | tee vps-cleanup-output.txt
+
+      - name: Upload VPS cleanup output
+        if: inputs.target == 'vps-cleanup'
+        uses: actions/upload-artifact@v4
+        with:
+          name: legacy-cleanup-vps-${{ inputs.mode }}-${{ github.run_id }}
+          path: vps-cleanup-output.txt
+          if-no-files-found: error
+          retention-days: 14
