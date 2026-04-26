@@ -279,11 +279,30 @@ jobs:
 
           if [ "$service_ready" = "true" ]; then
             cd "$DEPLOY_PATH"
-            rm -f backend-release.tar.gz backend-env
-            find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+            echo "VPS cleanup inventory:"
+            find . -maxdepth 2 -mindepth 1 -printf '%M %s %p\n' | sort || true
+
+            cleanup_paths=()
+            for path in backend-release.tar.gz backend-env; do
+              [ -e "$path" ] && cleanup_paths+=("$path")
+            done
+            while IFS= read -r path; do
+              cleanup_paths+=("$path")
+            done < <(find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -print)
             if [ -d releases ]; then
-              find releases -mindepth 1 -maxdepth 1 -type d | sort -r | tail -n +3 | xargs rm -rf
+              while IFS= read -r path; do
+                cleanup_paths+=("$path")
+              done < <(find releases -mindepth 1 -maxdepth 1 -type d | sort -r | tail -n +3)
             fi
+
+            if [ "${#cleanup_paths[@]}" -gt 0 ]; then
+              echo "VPS cleanup candidates:"
+              printf ' - %s\n' "${cleanup_paths[@]}"
+              rm -rf -- "${cleanup_paths[@]}"
+            else
+              echo "No VPS cleanup candidates found."
+            fi
+
             exit 0
           fi
 
