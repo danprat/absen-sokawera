@@ -35,14 +35,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Buat folder uploads
-os.makedirs("uploads/faces", exist_ok=True)
-os.makedirs("uploads/logos", exist_ok=True)
-os.makedirs("uploads/backgrounds", exist_ok=True)
-
-# Mount uploads folder (untuk foto wajah, logo, background)
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-
 # API Routes
 API_PREFIX = "/api/v1"
 
@@ -82,8 +74,8 @@ if os.path.exists(FRONTEND_PATH):
         Serve frontend untuk semua route yang tidak match dengan API.
         Ini untuk support client-side routing (React Router).
         """
-        # Skip jika request ke API atau uploads (sudah di-handle di atas)
-        if full_path.startswith("api/") or full_path.startswith("uploads/"):
+        # Skip jika request ke API.
+        if full_path.startswith("api/"):
             # Biarkan FastAPI return 404
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail="Not Found")

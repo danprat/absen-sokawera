@@ -1,11 +1,11 @@
 import base64
-import os
 import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.database import get_db
 from app.models.face_subject import FaceSubject
 from app.models.face_template import FaceTemplate
@@ -19,11 +19,18 @@ from app.schemas.face_core import (
     FaceTemplateUploadResponse,
 )
 from app.services.face_recognition import face_recognition_service
+from app.services.supabase_storage import (
+    SupabaseStorageError,
+    SupabaseStorageNotConfigured,
+    delete_object_reference,
+    display_url_for_reference,
+    guess_content_type,
+    upload_object,
+)
 from app.utils.face_app_auth import FaceClientContext, get_current_face_client
 
 
 router = APIRouter(prefix="", tags=["Face Core"])
-UPLOAD_DIR = "uploads/faces"
 
 
 async def read_image_payload(file: Optional[UploadFile] = None, image_base64: Optional[str] = None) -> bytes:
@@ -49,16 +56,51 @@ def get_subject_or_404(db: Session, subject_id: int, tenant_id: str) -> FaceSubj
     return subject
 
 
-def save_template_photo(image_data: bytes, tenant_id: str, filename: Optional[str]) -> str:
-    ext = filename.split(".")[-1] if filename and "." in filename else "jpg"
-    safe_tenant = "".join(ch for ch in tenant_id if ch.isalnum() or ch in ("-", "_")) or "default"
-    folder = os.path.join(UPLOAD_DIR, safe_tenant)
-    os.makedirs(folder, exist_ok=True)
-    stored_name = f"{uuid.uuid4()}.{ext}"
-    filepath = os.path.join(folder, stored_name)
-    with open(filepath, "wb") as f:
-        f.write(image_data)
-    return f"/uploads/faces/{safe_tenant}/{stored_name}"
+def _safe_path_part(value: str, fallback: str = "default") -> str:
+    return "".join(ch for ch in value if ch.isalnum() or ch in ("-", "_")) or fallback
+
+
+def build_face_object_path(tenant_id: str, subject_id: int, filename: Optional[str]) -> str:
+    ext = filename.split(".")[-1].lower() if filename and "." in filename else "jpg"
+    if not ext.isalnum():
+        ext = "jpg"
+    safe_tenant = _safe_path_part(tenant_id)
+    return f"{safe_tenant}/subjects/{subject_id}/faces/{uuid.uuid4()}.{ext}"
+
+
+async def save_template_photo(
+    image_data: bytes,
+    tenant_id: str,
+    subject_id: int,
+    filename: Optional[str],
+    content_type: Optional[str],
+):
+    settings = get_settings()
+    object_path = build_face_object_path(tenant_id, subject_id, filename)
+    return await upload_object(
+        settings.SUPABASE_STORAGE_FACE_BUCKET,
+        object_path,
+        image_data,
+        content_type or guess_content_type(filename),
+    )
+
+
+async def template_response(template: FaceTemplate) -> FaceTemplateResponse:
+    return FaceTemplateResponse.model_validate(template).model_copy(
+        update={"photo_url": await display_url_for_reference(template.photo_url)}
+    )
+
+
+def storage_http_error(operation: str, error: SupabaseStorageError) -> HTTPException:
+    if isinstance(error, SupabaseStorageNotConfigured):
+        return HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Supabase Storage belum dikonfigurasi untuk face service",
+        )
+    return HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail=f"Gagal {operation} foto wajah di Supabase Storage",
+    )
 
 
 @router.post("/subjects", response_model=FaceSubjectResponse, status_code=status.HTTP_201_CREATED)
@@ -149,11 +191,22 @@ async def upload_subject_face(
         FaceTemplate.tenant_id == client.tenant_id,
         FaceTemplate.subject_id == subject.id,
     ).count()
+    try:
+        stored_photo = await save_template_photo(
+            image_data,
+            client.tenant_id,
+            subject.id,
+            file.filename,
+            file.content_type,
+        )
+    except SupabaseStorageError as error:
+        raise storage_http_error("menyimpan", error)
+
     template = FaceTemplate(
         tenant_id=client.tenant_id,
         subject_id=subject.id,
         embedding=embedding,
-        photo_url=save_template_photo(image_data, client.tenant_id, file.filename),
+        photo_url=stored_photo.reference,
         is_primary=existing_count == 0,
     )
     db.add(template)
@@ -163,26 +216,30 @@ async def upload_subject_face(
     return FaceTemplateUploadResponse(
         id=template.id,
         subject_id=subject.id,
-        photo_url=template.photo_url,
+        photo_url=stored_photo.signed_url,
         message="Foto wajah berhasil disimpan",
     )
 
 
 @router.get("/subjects/{subject_id}/faces", response_model=list[FaceTemplateResponse])
-def list_subject_faces(
+async def list_subject_faces(
     subject_id: int,
     db: Session = Depends(get_db),
     client: FaceClientContext = Depends(get_current_face_client),
 ):
     subject = get_subject_or_404(db, subject_id, client.tenant_id)
-    return db.query(FaceTemplate).filter(
+    templates = db.query(FaceTemplate).filter(
         FaceTemplate.tenant_id == client.tenant_id,
         FaceTemplate.subject_id == subject.id,
     ).order_by(FaceTemplate.created_at.desc()).all()
+    try:
+        return [await template_response(template) for template in templates]
+    except SupabaseStorageError as error:
+        raise storage_http_error("membaca", error)
 
 
 @router.delete("/faces/{face_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_face_template(
+async def delete_face_template(
     face_id: int,
     db: Session = Depends(get_db),
     client: FaceClientContext = Depends(get_current_face_client),
@@ -193,8 +250,10 @@ def delete_face_template(
     ).first()
     if not template:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Foto tidak ditemukan")
-    if template.photo_url and os.path.exists(template.photo_url.lstrip("/")):
-        os.remove(template.photo_url.lstrip("/"))
+    try:
+        await delete_object_reference(template.photo_url)
+    except SupabaseStorageError as error:
+        raise storage_http_error("menghapus", error)
     db.delete(template)
     db.commit()
     face_recognition_service.invalidate_template_cache(client.tenant_id)

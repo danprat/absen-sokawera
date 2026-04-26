@@ -18,6 +18,7 @@ from app.routers.face_core import (
 )
 from app.schemas.face_core import FaceSubjectCreate
 from app.services.face_recognition import face_recognition_service
+from app.services.supabase_storage import StoredObject
 from app.utils.face_app_auth import hash_face_app_key
 
 
@@ -74,6 +75,16 @@ def test_upload_subject_face_stores_template_under_subject_tenant(monkeypatch):
     monkeypatch.setattr(face_recognition_service, "generate_embedding", lambda data, use_cnn=False, num_jitters=1: b"1" * 512)
     refresh_events = []
     monkeypatch.setattr(face_recognition_service, "invalidate_template_cache", lambda tenant_id=None: refresh_events.append(tenant_id))
+    monkeypatch.setattr(
+        "app.routers.face_core.save_template_photo",
+        lambda image_data, tenant_id, subject_id, filename, content_type: asyncio.sleep(
+            0,
+            result=StoredObject(
+                reference=f"supabase://face-originals/{tenant_id}/subjects/{subject_id}/faces/test.jpg",
+                signed_url="https://signed.example/test.jpg",
+            ),
+        ),
+    )
 
     response = asyncio.run(
         upload_subject_face(subject_id=subject.id, file=UploadFileStub(), db=db, client=context("tenant-a"))
@@ -81,8 +92,10 @@ def test_upload_subject_face_stores_template_under_subject_tenant(monkeypatch):
     template = db.query(FaceTemplate).filter(FaceTemplate.id == response.id).first()
 
     assert response.subject_id == subject.id
+    assert response.photo_url == "https://signed.example/test.jpg"
     assert template.tenant_id == "tenant-a"
     assert template.subject_id == subject.id
+    assert template.photo_url == f"supabase://face-originals/tenant-a/subjects/{subject.id}/faces/test.jpg"
     assert refresh_events == ["tenant-a"]
 
 
@@ -98,18 +111,71 @@ def test_tenant_cannot_list_or_delete_other_tenant_faces():
     db.refresh(template)
 
     try:
-        list_subject_faces(subject_id=subject.id, db=db, client=context("tenant-a"))
+        asyncio.run(list_subject_faces(subject_id=subject.id, db=db, client=context("tenant-a")))
     except HTTPException as list_error:
         assert list_error.status_code == 404
     else:
         raise AssertionError("Tenant A should not list tenant B subject faces")
 
     try:
-        delete_face_template(face_id=template.id, db=db, client=context("tenant-a"))
+        asyncio.run(delete_face_template(face_id=template.id, db=db, client=context("tenant-a")))
     except HTTPException as delete_error:
         assert delete_error.status_code == 404
     else:
         raise AssertionError("Tenant A should not delete tenant B face templates")
+
+
+def test_list_subject_faces_returns_signed_urls(monkeypatch):
+    db = make_session()
+    subject = FaceSubject(tenant_id="tenant-a", external_subject_id="EMP-1", display_name="Ani")
+    db.add(subject)
+    db.commit()
+    db.refresh(subject)
+    template = FaceTemplate(
+        tenant_id="tenant-a",
+        subject_id=subject.id,
+        embedding=b"1" * 512,
+        photo_url="supabase://face-originals/tenant-a/subjects/1/faces/test.jpg",
+    )
+    db.add(template)
+    db.commit()
+    db.refresh(template)
+    monkeypatch.setattr(
+        "app.routers.face_core.display_url_for_reference",
+        lambda reference: asyncio.sleep(0, result=f"https://signed.example/{reference.rsplit('/', 1)[-1]}"),
+    )
+
+    result = asyncio.run(list_subject_faces(subject_id=subject.id, db=db, client=context("tenant-a")))
+
+    assert result[0].photo_url == "https://signed.example/test.jpg"
+
+
+def test_delete_face_template_removes_storage_object(monkeypatch):
+    db = make_session()
+    subject = FaceSubject(tenant_id="tenant-a", external_subject_id="EMP-1", display_name="Ani")
+    db.add(subject)
+    db.commit()
+    db.refresh(subject)
+    template = FaceTemplate(
+        tenant_id="tenant-a",
+        subject_id=subject.id,
+        embedding=b"1" * 512,
+        photo_url="supabase://face-originals/tenant-a/subjects/1/faces/test.jpg",
+    )
+    db.add(template)
+    db.commit()
+    db.refresh(template)
+    deleted = []
+    monkeypatch.setattr(
+        "app.routers.face_core.delete_object_reference",
+        lambda reference: asyncio.sleep(0, result=deleted.append(reference)),
+    )
+    monkeypatch.setattr(face_recognition_service, "invalidate_template_cache", lambda tenant_id=None: None)
+
+    asyncio.run(delete_face_template(face_id=template.id, db=db, client=context("tenant-a")))
+
+    assert deleted == ["supabase://face-originals/tenant-a/subjects/1/faces/test.jpg"]
+    assert db.query(FaceTemplate).filter(FaceTemplate.id == template.id).first() is None
 
 
 def test_recognize_subject_returns_best_match_from_same_tenant(monkeypatch):
