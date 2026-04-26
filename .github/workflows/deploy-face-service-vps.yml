@@ -1,0 +1,258 @@
+name: Deploy Face Recognition Service
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy-face-service-vps.yml"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      FACE_SERVICE_URL: ${{ secrets.FACE_SERVICE_URL }}
+      FACE_SERVICE_API_KEY: ${{ secrets.FACE_SERVICE_API_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SECRET_KEY: ${{ secrets.SECRET_KEY }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(
+            VPS_HOST
+            VPS_USER
+            VPS_PORT
+            VPS_SSH_KEY
+            VPS_DEPLOY_PATH
+            APP_PORT
+            PYTHON_VERSION
+            FACE_SERVICE_URL
+            FACE_SERVICE_API_KEY
+            SUPABASE_ACCESS_TOKEN
+            SUPABASE_PROJECT_ID
+          )
+
+          for name in "${required[@]}"; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing required secret: $name" >&2
+              exit 1
+            fi
+          done
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+          APP_PORT: ${{ secrets.APP_PORT }}
+          PYTHON_VERSION: ${{ secrets.PYTHON_VERSION }}
+
+      - name: Package backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar \
+            --exclude='backend/venv' \
+            --exclude='backend/.venv' \
+            --exclude='backend/.env' \
+            --exclude='backend/.pytest_cache' \
+            --exclude='backend/uploads' \
+            -czf backend-release.tar.gz backend
+
+      - name: Prepare backend environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          {
+            printf 'DATABASE_URL=%q\n' "${DATABASE_URL:-}"
+            printf 'SECRET_KEY=%q\n' "${SECRET_KEY:-}"
+            printf 'FACE_SERVICE_URL=%q\n' "${FACE_SERVICE_URL:-}"
+            printf 'FACE_SERVICE_API_KEY=%q\n' "${FACE_SERVICE_API_KEY:-}"
+            printf 'SUPABASE_URL=%q\n' "${SUPABASE_URL:-}"
+            printf 'SUPABASE_ANON_KEY=%q\n' "${SUPABASE_ANON_KEY:-}"
+            printf 'SUPABASE_SERVICE_ROLE_KEY=%q\n' "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          } > backend-env
+
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ secrets.VPS_PORT }}" "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Upload backend package
+        shell: bash
+        run: |
+          set -euo pipefail
+          scp -i ~/.ssh/deploy_key -P "${{ secrets.VPS_PORT }}" \
+            backend-release.tar.gz backend-env \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.VPS_DEPLOY_PATH }}/"
+
+      - name: Deploy on VPS
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.VPS_PORT }}" \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+            "DEPLOY_PATH='${{ secrets.VPS_DEPLOY_PATH }}' APP_PORT='${{ secrets.APP_PORT }}' PYTHON_VERSION='${{ secrets.PYTHON_VERSION }}' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          source backend-env
+          rm -f backend-env
+
+          write_env_line() {
+            key="$1"
+            value="${2:-}"
+            file="$3"
+            printf '%s=%s\n' "$key" "$value" >> "$file"
+          }
+
+          remove_env_keys() {
+            file="$1"
+            shift
+            pattern="^($(printf '%s|' "$@" | sed 's/|$//'))="
+            if [ -f "$file" ]; then
+              grep -Ev "$pattern" "$file" > "${file}.tmp" || true
+              mv "${file}.tmp" "$file"
+            fi
+          }
+
+          mkdir -p releases current
+          release_dir="releases/$(date +%Y%m%d%H%M%S)"
+          mkdir -p "$release_dir"
+          tar -xzf backend-release.tar.gz -C "$release_dir"
+          rm -f backend-release.tar.gz
+
+          if [ -f current/backend/.env ]; then
+            cp current/backend/.env "$release_dir/backend/.env"
+          elif [ -f .env ]; then
+            cp .env "$release_dir/backend/.env"
+          fi
+
+          if [ ! -f "$release_dir/backend/.env" ]; then
+            if [ -z "${DATABASE_URL:-}" ] || [ -z "${SECRET_KEY:-}" ]; then
+              echo "No existing backend .env found and DATABASE_URL/SECRET_KEY secrets are not set." >&2
+              exit 1
+            fi
+
+            env_file="$release_dir/backend/.env"
+            : > "$env_file"
+            write_env_line DATABASE_URL "$DATABASE_URL" "$env_file"
+            write_env_line SECRET_KEY "$SECRET_KEY" "$env_file"
+            write_env_line ALGORITHM HS256 "$env_file"
+            write_env_line ACCESS_TOKEN_EXPIRE_MINUTES 1440 "$env_file"
+            write_env_line CORS_ORIGINS "https://face-rec.monika.id,http://127.0.0.1:8080,http://localhost:8080" "$env_file"
+            write_env_line DEBUG False "$env_file"
+            write_env_line AUTO_CREATE_SCHEMA True "$env_file"
+            write_env_line PRELOAD_FACE_EMBEDDINGS True "$env_file"
+            write_env_line SUPABASE_URL "${SUPABASE_URL:-}" "$env_file"
+            write_env_line SUPABASE_ANON_KEY "${SUPABASE_ANON_KEY:-}" "$env_file"
+            write_env_line SUPABASE_SERVICE_ROLE_KEY "${SUPABASE_SERVICE_ROLE_KEY:-}" "$env_file"
+          else
+            env_file="$release_dir/backend/.env"
+          fi
+
+          remove_env_keys "$env_file" \
+            FACE_RECOGNITION_ENABLED \
+            FACE_RECOGNITION_DEBUG_LOGS \
+            FACE_SERVICE_REQUIRE_API_KEY \
+            FACE_SERVICE_API_KEY \
+            FACE_SERVICE_URL
+          write_env_line FACE_RECOGNITION_ENABLED True "$env_file"
+          write_env_line FACE_RECOGNITION_DEBUG_LOGS False "$env_file"
+          write_env_line FACE_SERVICE_REQUIRE_API_KEY True "$env_file"
+          write_env_line FACE_SERVICE_API_KEY "$FACE_SERVICE_API_KEY" "$env_file"
+          write_env_line FACE_SERVICE_URL "$FACE_SERVICE_URL" "$env_file"
+
+          if [ -d current/backend/uploads ]; then
+            cp -a current/backend/uploads "$release_dir/backend/uploads"
+          else
+            mkdir -p "$release_dir/backend/uploads/faces" "$release_dir/backend/uploads/logos" "$release_dir/backend/uploads/backgrounds"
+          fi
+
+          cd "$release_dir/backend"
+          python_bin="python${PYTHON_VERSION}"
+          if ! command -v "$python_bin" >/dev/null 2>&1; then
+            python_bin="python3"
+          fi
+          "$python_bin" -m venv venv
+          ./venv/bin/python -m pip install --upgrade pip setuptools wheel
+          ./venv/bin/python -m pip install -r requirements.txt
+          ./venv/bin/python -m alembic upgrade head
+
+          cd "$DEPLOY_PATH"
+          ln -sfn "$release_dir" current
+
+          if command -v supervisorctl >/dev/null 2>&1; then
+            supervisorctl restart face-recognition || true
+          fi
+
+          if command -v systemctl >/dev/null 2>&1; then
+            systemctl --user restart face-recognition || true
+          fi
+
+          if command -v pm2 >/dev/null 2>&1; then
+            pm2 delete face-recognition || true
+            pm2 start "$DEPLOY_PATH/current/backend/venv/bin/python" \
+              --name face-recognition \
+              -- -m uvicorn app.main:app --host 127.0.0.1 --port "$APP_PORT" --app-dir "$DEPLOY_PATH/current/backend"
+            pm2 save || true
+          else
+            if [ -f "$DEPLOY_PATH/face-recognition.pid" ]; then
+              old_pid="$(cat "$DEPLOY_PATH/face-recognition.pid" || true)"
+              if [ -n "$old_pid" ]; then
+                kill "$old_pid" 2>/dev/null || true
+              fi
+            fi
+            nohup "$DEPLOY_PATH/current/backend/venv/bin/python" \
+              -m uvicorn app.main:app \
+              --host 127.0.0.1 \
+              --port "$APP_PORT" \
+              --app-dir "$DEPLOY_PATH/current/backend" \
+              > "$DEPLOY_PATH/face-recognition.log" 2>&1 &
+            echo $! > "$DEPLOY_PATH/face-recognition.pid"
+          fi
+
+          sleep 3
+          curl --fail --show-error --silent "http://127.0.0.1:${APP_PORT}/health"
+          REMOTE
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Update Supabase face service secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase secrets set \
+            "FACE_SERVICE_URL=${FACE_SERVICE_URL}" \
+            "FACE_SERVICE_API_KEY=${FACE_SERVICE_API_KEY}" \
+            --project-ref "${SUPABASE_PROJECT_ID}"
+
+      - name: Redeploy face orchestrator
+        shell: bash
+        run: supabase functions deploy face-orchestrator --project-ref "${SUPABASE_PROJECT_ID}"
+
+      - name: Check face orchestrator
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --silent \
+            "https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/face-orchestrator/health"
