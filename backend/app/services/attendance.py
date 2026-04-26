@@ -1,5 +1,6 @@
 from typing import Optional, Tuple
 from datetime import datetime, date, time, timedelta
+from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from app.config import get_settings
@@ -16,6 +17,15 @@ from app.utils.cache import (
 )
 
 settings = get_settings()
+JAKARTA_TZ = ZoneInfo("Asia/Jakarta")
+
+
+def jakarta_now() -> datetime:
+    return datetime.now(JAKARTA_TZ).replace(tzinfo=None)
+
+
+def jakarta_today() -> date:
+    return jakarta_now().date()
 
 
 class AttendanceService:
@@ -127,7 +137,7 @@ class AttendanceService:
         return None
     
     def get_today_attendance(self, db: Session, employee_id: int) -> Optional[AttendanceLog]:
-        today = date.today()
+        today = jakarta_today()
         return db.query(AttendanceLog).filter(
             and_(
                 AttendanceLog.employee_id == employee_id,
@@ -150,7 +160,7 @@ class AttendanceService:
         employee: Employee,
         confidence_score: float
     ) -> Tuple[Optional[AttendanceLog], str]:
-        now = datetime.now()
+        now = jakarta_now()
         today = now.date()
         current_time = now.time()
 
@@ -229,7 +239,7 @@ class AttendanceService:
             return attendance, f"Sampai jumpa besok, {employee.name}"
     
     def mark_absent_employees(self, db: Session):
-        today = date.today()
+        today = jakarta_today()
 
         if not self.is_workday(db, today) or self.is_holiday(db, today):
             return

@@ -39,6 +39,31 @@ function bad(detail: string, status = 400) {
   return json({ detail }, status);
 }
 
+async function invalidateFaceServiceAttendanceCache() {
+  const faceServiceUrl = Deno.env.get("FACE_SERVICE_URL");
+  const faceServiceApiKey = Deno.env.get("FACE_SERVICE_API_KEY");
+
+  if (!faceServiceUrl || !faceServiceApiKey) return;
+
+  try {
+    const response = await fetch(
+      `${faceServiceUrl.replace(/\/+$/, "")}/api/v1/attendance/cache/invalidate`,
+      {
+        method: "POST",
+        headers: {
+          "x-face-service-key": faceServiceApiKey,
+        },
+      },
+    );
+
+    if (!response.ok) {
+      console.warn(`Face service cache invalidation failed: ${response.status}`);
+    }
+  } catch (error) {
+    console.warn("Face service cache invalidation failed", error);
+  }
+}
+
 function parseBool(value: string | null) {
   if (value === null || value === undefined || value === "") return undefined;
   return value === "true" || value === "1";
@@ -125,8 +150,33 @@ function stripRoute(url: URL) {
   return url.pathname;
 }
 
+function jakartaDateParts(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+  }).formatToParts(now);
+  const part = (type: string) => parts.find((item) => item.type === type)?.value || "";
+  const dayMap: Record<string, number> = {
+    Mon: 0,
+    Tue: 1,
+    Wed: 2,
+    Thu: 3,
+    Fri: 4,
+    Sat: 5,
+    Sun: 6,
+  };
+
+  return {
+    isoDate: `${part("year")}-${part("month")}-${part("day")}`,
+    dayOfWeek: dayMap[part("weekday")] ?? 0,
+  };
+}
+
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  return jakartaDateParts().isoDate;
 }
 
 function timeHHMM(value: string | null | undefined) {
@@ -240,7 +290,7 @@ async function publicSettings() {
     settings = inserted.data;
   }
 
-  const dayOfWeek = (new Date().getDay() + 6) % 7;
+  const dayOfWeek = jakartaDateParts().dayOfWeek;
   const { data: schedule } = await supabase
     .from("daily_work_schedules")
     .select("*")
@@ -504,6 +554,7 @@ async function settingsUpdate(req: Request) {
     ? await supabase.from("work_settings").update(data).eq("id", existing.id).select("*").single()
     : await supabase.from("work_settings").insert({ id: 1, ...data }).select("*").single();
   if (result.error) return bad(result.error.message, 400);
+  await invalidateFaceServiceAttendanceCache();
   await logAudit("UPDATE", "SETTINGS", "Mengupdate pengaturan kantor", admin, result.data.id, data);
   return json(result.data);
 }
@@ -549,10 +600,21 @@ async function holidays(url: URL, excluded = false) {
   return json({ items: data || [], total: count || 0 });
 }
 
+async function createHoliday(req: Request) {
+  const admin = await requireAdmin(req, true);
+  const payload = await bodyJson(req);
+  const { data, error } = await supabase.from("holidays").insert(payload).select("*").single();
+  if (error) return bad(error.message, 400);
+  await invalidateFaceServiceAttendanceCache();
+  await logAudit("CREATE", "HOLIDAY", `Menambahkan hari libur: ${data.name} (${data.date})`, admin, data.id, payload);
+  return json(data, 201);
+}
+
 async function restoreHoliday(req: Request, id: number) {
   const admin = await requireAdmin(req, true);
   const { data, error } = await supabase.from("holidays").update({ is_excluded: false }).eq("id", id).select("*").single();
   if (error) return bad(error.message, 400);
+  await invalidateFaceServiceAttendanceCache();
   await logAudit("UPDATE", "HOLIDAY", `Mengembalikan hari libur: ${data.name}`, admin, id);
   return json(data);
 }
@@ -567,11 +629,13 @@ async function deleteHoliday(req: Request, id: number) {
   if (holiday.is_auto) {
     const { error } = await supabase.from("holidays").update({ is_excluded: true }).eq("id", id);
     if (error) return bad(error.message, 400);
+    await invalidateFaceServiceAttendanceCache();
     return empty();
   }
 
   const { error } = await supabase.from("holidays").delete().eq("id", id);
   if (error) return bad(error.message, 400);
+  await invalidateFaceServiceAttendanceCache();
   return empty();
 }
 
@@ -636,6 +700,8 @@ async function syncHolidays(req: Request, url: URL) {
     { ...stats, year, source },
   );
 
+  await invalidateFaceServiceAttendanceCache();
+
   return json({
     ...stats,
     message: `Berhasil sync ${stats.added} hari libur baru, ${stats.updated} diperbarui`,
@@ -654,6 +720,7 @@ async function schedulesUpdate(req: Request) {
   for (const schedule of schedules) {
     await supabase.from("daily_work_schedules").upsert(schedule, { onConflict: "day_of_week" });
   }
+  await invalidateFaceServiceAttendanceCache();
   return schedulesList();
 }
 
@@ -1053,7 +1120,7 @@ export async function handleAppRequest(req: Request, allowedPrefixes?: string[],
   if (path === "/api/v1/admin/settings/background" && method === "DELETE") return deleteSettingAsset(req, "background_url");
   if (path === "/api/v1/admin/settings/holidays" && method === "GET") return holidays(url);
   if (path === "/api/v1/admin/settings/holidays/excluded" && method === "GET") return holidays(url, true);
-  if (path === "/api/v1/admin/settings/holidays" && method === "POST") return simpleCrud(req, "holidays", "HOLIDAY");
+  if (path === "/api/v1/admin/settings/holidays" && method === "POST") return createHoliday(req);
   const holidayMatch = path.match(/^\/api\/v1\/admin\/settings\/holidays\/(\d+)$/);
   if (holidayMatch && method === "DELETE") return deleteHoliday(req, Number(holidayMatch[1]));
   const holidayRestoreMatch = path.match(/^\/api\/v1\/admin\/settings\/holidays\/(\d+)\/restore$/);

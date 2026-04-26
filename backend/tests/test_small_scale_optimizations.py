@@ -13,6 +13,7 @@ from app.models.survey import SurveyQuestion, QuestionType as SurveyQuestionType
 from app.models.work_settings import WorkSettings
 from app.routers.admin_survey import create_question, delete_question, reorder_questions, update_question
 from app.routers.face import delete_face, refresh_face_embedding_cache, upload_face
+from app.routers.attendance import invalidate_attendance_cache
 from app.routers.settings import (
     create_holiday,
     delete_holiday,
@@ -396,6 +397,22 @@ def test_is_holiday_returns_cached_value_without_querying_holiday_table():
 
     assert result is True
     assert Holiday not in db.query_calls
+
+
+def test_internal_attendance_cache_invalidation_clears_settings_schedule_and_holidays():
+    cache.clear()
+    cache.set(SETTINGS_CACHE_KEY, {"threshold": 0.5}, ttl_seconds=300)
+    cache.set(f"{DAILY_SCHEDULE_CACHE_KEY}:6", make_schedule(6, is_workday=False), ttl_seconds=300)
+    cache.set(f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-04-26", True, ttl_seconds=300)
+    cache.set(PUBLIC_SETTINGS_CACHE_KEY, {"keep": True}, ttl_seconds=300)
+
+    response = invalidate_attendance_cache()
+
+    assert response == {"message": "Cache absensi berhasil dihapus"}
+    assert cache.get(SETTINGS_CACHE_KEY) is None
+    assert cache.get(f"{DAILY_SCHEDULE_CACHE_KEY}:6") is None
+    assert cache.get(f"{HOLIDAY_CACHE_KEY_PREFIX}:2026-04-26") is None
+    assert cache.get(PUBLIC_SETTINGS_CACHE_KEY) == {"keep": True}
 
 
 

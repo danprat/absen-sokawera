@@ -10,11 +10,32 @@ from app.models.attendance import AttendanceLog
 from app.models.employee import Employee
 from app.schemas.attendance import AttendanceRecognizeResponse, AttendanceTodayItem, AttendanceTodayResponse
 from app.services.face_recognition import face_recognition_service
-from app.services.attendance import attendance_service
+from app.services.attendance import attendance_service, jakarta_now
 from app.utils.face_service_auth import require_face_service_key
+from app.utils.cache import (
+    cache,
+    SETTINGS_CACHE_KEY,
+    DAILY_SCHEDULE_CACHE_KEY,
+    HOLIDAY_CACHE_KEY_PREFIX,
+)
 
 router = APIRouter(prefix="/attendance", tags=["Attendance - Tablet"])
 limiter = Limiter(key_func=get_remote_address)
+
+
+def invalidate_attendance_related_caches() -> None:
+    cache.invalidate(SETTINGS_CACHE_KEY)
+    cache.invalidate_prefix(f"{DAILY_SCHEDULE_CACHE_KEY}:")
+    cache.invalidate_prefix(f"{HOLIDAY_CACHE_KEY_PREFIX}:")
+
+
+@router.post("/cache/invalidate")
+def invalidate_attendance_cache(
+    _: None = Depends(require_face_service_key),
+):
+    """Internal hook for Edge Functions after settings/schedule/holiday changes."""
+    invalidate_attendance_related_caches()
+    return {"message": "Cache absensi berhasil dihapus"}
 
 
 @router.post("/recognize", response_model=AttendanceRecognizeResponse)
@@ -67,8 +88,8 @@ async def recognize_face_only(
         )
 
     # Validate attendance eligibility without saving
-    from datetime import datetime, time
-    now = datetime.now()
+    from datetime import time
+    now = jakarta_now()
 
     if not attendance_service.is_workday(db, now.date()):
         raise HTTPException(
