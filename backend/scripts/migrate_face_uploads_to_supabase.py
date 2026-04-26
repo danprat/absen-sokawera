@@ -2,10 +2,10 @@ import argparse
 import asyncio
 from pathlib import Path
 
-from app.database import SessionLocal
-from app.models.face_template import FaceTemplate
-from app.routers.face_core import build_face_object_path
-from app.services.supabase_storage import guess_content_type, upload_object
+from app.db import SessionLocal
+from app.face.models import FaceTemplate
+from app.face.api import build_face_object_path
+from app.face.storage import guess_content_type, upload_object
 from app.config import get_settings
 
 

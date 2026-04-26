@@ -230,37 +230,6 @@ jobs:
               --legacy-root "$DEPLOY_PATH/current/backend"
           fi
 
-          find app/routers -type f \
-            ! -name '__init__.py' \
-            ! -name 'face_core.py' \
-            -delete
-          find app/models -type f \
-            ! -name '__init__.py' \
-            ! -name 'face_client.py' \
-            ! -name 'face_subject.py' \
-            ! -name 'face_template.py' \
-            -delete
-          find app/schemas -type f \
-            ! -name '__init__.py' \
-            ! -name 'face_core.py' \
-            -delete
-          find app/services -type f \
-            ! -name '__init__.py' \
-            ! -name 'face_recognition.py' \
-            ! -name 'supabase_storage.py' \
-            -delete
-          find app/utils -type f \
-            ! -name '__init__.py' \
-            ! -name 'face_app_auth.py' \
-            -delete
-          {
-            printf '%s\n' 'from app.models.face_client import FaceClient'
-            printf '%s\n' 'from app.models.face_subject import FaceSubject'
-            printf '%s\n' 'from app.models.face_template import FaceTemplate'
-            printf '%s\n' ''
-            printf '%s\n' '__all__ = ["FaceClient", "FaceSubject", "FaceTemplate"]'
-          } > app/models/__init__.py
-
           find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
           rm -rf \
             tests \
@@ -272,7 +241,14 @@ jobs:
             README.md \
             setup_db.py \
             .env.example \
-            .gitignore
+            .gitignore \
+            app/database.py \
+            app/db_base.py \
+            app/models \
+            app/routers \
+            app/schemas \
+            app/services \
+            app/utils
 
           cd "$DEPLOY_PATH"
           rm -rf current

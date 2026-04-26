@@ -4,11 +4,11 @@ from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.db_base import Base
-from app.models.face_client import FaceClient
-from app.models.face_subject import FaceSubject
-from app.models.face_template import FaceTemplate
-from app.routers.face_core import (
+from app.db import Base
+from app.face.models import FaceClient
+from app.face.models import FaceSubject
+from app.face.models import FaceTemplate
+from app.face.api import (
     FaceClientContext,
     create_subject,
     delete_face_template,
@@ -16,10 +16,10 @@ from app.routers.face_core import (
     recognize_subject,
     upload_subject_face,
 )
-from app.schemas.face_core import FaceSubjectCreate
-from app.services.face_recognition import face_recognition_service
-from app.services.supabase_storage import StoredObject
-from app.utils.face_app_auth import hash_face_app_key
+from app.face.schemas import FaceSubjectCreate
+from app.face.recognition import face_recognition_service
+from app.face.storage import StoredObject
+from app.face.auth import hash_face_app_key
 
 
 class UploadFileStub:
@@ -76,7 +76,7 @@ def test_upload_subject_face_stores_template_under_subject_tenant(monkeypatch):
     refresh_events = []
     monkeypatch.setattr(face_recognition_service, "invalidate_template_cache", lambda tenant_id=None: refresh_events.append(tenant_id))
     monkeypatch.setattr(
-        "app.routers.face_core.save_template_photo",
+        "app.face.api.save_template_photo",
         lambda image_data, tenant_id, subject_id, filename, content_type: asyncio.sleep(
             0,
             result=StoredObject(
@@ -141,7 +141,7 @@ def test_list_subject_faces_returns_signed_urls(monkeypatch):
     db.commit()
     db.refresh(template)
     monkeypatch.setattr(
-        "app.routers.face_core.display_url_for_reference",
+        "app.face.api.display_url_for_reference",
         lambda reference: asyncio.sleep(0, result=f"https://signed.example/{reference.rsplit('/', 1)[-1]}"),
     )
 
@@ -167,7 +167,7 @@ def test_delete_face_template_removes_storage_object(monkeypatch):
     db.refresh(template)
     deleted = []
     monkeypatch.setattr(
-        "app.routers.face_core.delete_object_reference",
+        "app.face.api.delete_object_reference",
         lambda reference: asyncio.sleep(0, result=deleted.append(reference)),
     )
     monkeypatch.setattr(face_recognition_service, "invalidate_template_cache", lambda tenant_id=None: None)

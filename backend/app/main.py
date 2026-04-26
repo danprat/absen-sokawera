@@ -5,8 +5,8 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from app.config import get_settings
-from app.database import engine, Base
-from app.routers import face_core
+from app.db import Base, engine
+from app.face import api as face_api
 
 settings_config = get_settings()
 
@@ -35,7 +35,7 @@ app.add_middleware(
 # API Routes
 API_PREFIX = "/api/v1"
 
-app.include_router(face_core.router, prefix=API_PREFIX)
+app.include_router(face_api.router, prefix=API_PREFIX)
 
 
 @app.on_event("startup")
