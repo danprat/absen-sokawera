@@ -33,7 +33,6 @@ jobs:
           required=(
             VPS_HOST
             VPS_USER
-            VPS_PORT
             VPS_SSH_KEY
             VPS_DEPLOY_PATH
             APP_PORT
@@ -53,7 +52,6 @@ jobs:
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_PORT: ${{ secrets.VPS_PORT }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           VPS_DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
           APP_PORT: ${{ secrets.APP_PORT }}
@@ -94,21 +92,25 @@ jobs:
           chmod 700 ~/.ssh
           printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "${{ secrets.VPS_PORT }}" "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -T 15 -p "${SSH_PORT}" "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts || true
+        env:
+          SSH_PORT: ${{ secrets.VPS_SSH_PORT || '22' }}
 
       - name: Upload backend package
         shell: bash
         run: |
           set -euo pipefail
-          scp -i ~/.ssh/deploy_key -P "${{ secrets.VPS_PORT }}" \
+          scp -i ~/.ssh/deploy_key -P "${SSH_PORT}" -o StrictHostKeyChecking=accept-new \
             backend-release.tar.gz backend-env \
             "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.VPS_DEPLOY_PATH }}/"
+        env:
+          SSH_PORT: ${{ secrets.VPS_SSH_PORT || '22' }}
 
       - name: Deploy on VPS
         shell: bash
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/deploy_key -p "${{ secrets.VPS_PORT }}" \
+          ssh -i ~/.ssh/deploy_key -p "${SSH_PORT}" -o StrictHostKeyChecking=accept-new \
             "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
             "DEPLOY_PATH='${{ secrets.VPS_DEPLOY_PATH }}' APP_PORT='${{ secrets.APP_PORT }}' PYTHON_VERSION='${{ secrets.PYTHON_VERSION }}' bash -s" <<'REMOTE'
           set -euo pipefail
@@ -232,6 +234,8 @@ jobs:
           sleep 3
           curl --fail --show-error --silent "http://127.0.0.1:${APP_PORT}/health"
           REMOTE
+        env:
+          SSH_PORT: ${{ secrets.VPS_SSH_PORT || '22' }}
 
       - uses: supabase/setup-cli@v1
         with:
