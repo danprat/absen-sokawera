@@ -6,11 +6,11 @@ from app.db_base import Base
 settings = get_settings()
 
 connect_args = {}
-if settings.DATABASE_URL.startswith(("postgresql://", "postgresql+psycopg://", "postgresql+psycopg2://")):
+if settings.sqlalchemy_database_url.startswith(("postgresql://", "postgresql+psycopg://", "postgresql+psycopg2://")):
     connect_args["application_name"] = "api-absen-desa"
 
 engine = create_engine(
-    settings.DATABASE_URL,
+    settings.sqlalchemy_database_url,
     pool_pre_ping=True,
     pool_recycle=settings.DB_POOL_RECYCLE_SECONDS,
     pool_size=settings.DB_POOL_SIZE,

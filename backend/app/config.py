@@ -1,6 +1,23 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 from typing import Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+
+SQLALCHEMY_UNSUPPORTED_DATABASE_OPTIONS = {"connection_limit", "pgbouncer"}
+
+
+def normalize_database_url_for_sqlalchemy(database_url: str) -> str:
+    if not database_url.startswith(("postgresql://", "postgresql+psycopg://", "postgresql+psycopg2://")):
+        return database_url
+
+    parts = urlsplit(database_url)
+    query_items = [
+        (key, value)
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if key not in SQLALCHEMY_UNSUPPORTED_DATABASE_OPTIONS
+    ]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query_items), parts.fragment))
 
 
 class Settings(BaseSettings):
@@ -48,6 +65,10 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
+
+    @property
+    def sqlalchemy_database_url(self) -> str:
+        return normalize_database_url_for_sqlalchemy(self.DATABASE_URL)
     
     model_config = SettingsConfigDict(
         env_file=".env",
