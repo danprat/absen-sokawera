@@ -1,6 +1,8 @@
 import asyncio
 from datetime import date, time
 
+from fastapi import HTTPException
+
 from app.config import get_settings
 from app.models.daily_schedule import DailyWorkSchedule
 from app.models.employee import Employee
@@ -649,12 +651,15 @@ def test_upload_face_refreshes_face_cache_after_commit(monkeypatch):
     file = UploadFileStub()
     admin = type("AdminStub", (), {"name": "reviewer"})()
     events = []
+    embedding_calls = []
 
     monkeypatch.setattr("app.routers.face.face_recognition_service.detect_face", lambda image_data: True)
-    monkeypatch.setattr(
-        "app.routers.face.face_recognition_service.generate_embedding",
-        lambda image_data, use_cnn, num_jitters: "embedding-vector",
-    )
+
+    def generate_embedding(image_data, use_cnn, num_jitters):
+        embedding_calls.append((use_cnn, num_jitters))
+        return "embedding-vector"
+
+    monkeypatch.setattr("app.routers.face.face_recognition_service.generate_embedding", generate_embedding)
     monkeypatch.setattr("app.routers.face.os.makedirs", lambda path, exist_ok: None)
     monkeypatch.setattr("app.routers.face.uuid.uuid4", lambda: "fixed-upload-id")
     monkeypatch.setattr("builtins.open", lambda *args, **kwargs: FileWriterStub(events))
@@ -676,6 +681,30 @@ def test_upload_face_refreshes_face_cache_after_commit(monkeypatch):
     assert db.added[0].embedding == "embedding-vector"
     assert db.added[0].tenant_id == "default"
     assert db.added[0].is_primary is True
+    assert embedding_calls == [(False, 1)]
+
+
+def test_upload_face_rejects_when_embedding_generation_fails(monkeypatch):
+    db = UploadFaceDB(employee=Employee(id=5), existing_count=0)
+    file = UploadFileStub()
+    admin = type("AdminStub", (), {"name": "reviewer"})()
+
+    monkeypatch.setattr("app.routers.face.face_recognition_service.detect_face", lambda image_data: True)
+    monkeypatch.setattr(
+        "app.routers.face.face_recognition_service.generate_embedding",
+        lambda image_data, use_cnn, num_jitters: None,
+    )
+
+    try:
+        asyncio.run(upload_face(employee_id=5, file=file, db=db, admin=admin))
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert exc.detail == "Embedding wajah gagal dibuat. Coba gunakan foto wajah yang lebih jelas."
+    else:
+        raise AssertionError("upload_face should reject missing face embeddings")
+
+    assert db.added == []
+    assert db.events == []
 
 
 

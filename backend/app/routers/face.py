@@ -53,6 +53,20 @@ async def upload_face(
             detail="Wajah tidak terdeteksi dalam gambar"
         )
     
+    # Use HOG for enrollment on small CPU VPS deployments. CNN enrollment is too
+    # heavy for the hosted face service and can fail before an embedding is made.
+    embedding = face_recognition_service.generate_embedding(
+        image_data,
+        use_cnn=False,
+        num_jitters=1,
+    )
+
+    if embedding is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Embedding wajah gagal dibuat. Coba gunakan foto wajah yang lebih jelas."
+        )
+
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     
     ext = file.filename.split(".")[-1] if file.filename else "jpg"
@@ -61,13 +75,6 @@ async def upload_face(
     
     with open(filepath, "wb") as f:
         f.write(image_data)
-    
-    # Use CNN model and num_jitters=5 for registration (more accurate embeddings)
-    embedding = face_recognition_service.generate_embedding(
-        image_data, 
-        use_cnn=True,      # Better face detection for registration
-        num_jitters=5      # More stable embeddings
-    )
     
     existing_count = db.query(FaceEmbedding).filter(
         FaceEmbedding.employee_id == employee_id
