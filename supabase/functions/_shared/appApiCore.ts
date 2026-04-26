@@ -133,6 +133,85 @@ function timeHHMM(value: string | null | undefined) {
   return value ? value.slice(0, 5) : value;
 }
 
+function currentYearJakarta() {
+  return Number(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Jakarta",
+      year: "numeric",
+    }).format(new Date()),
+  );
+}
+
+function parseHolidayDate(value: unknown) {
+  if (typeof value !== "string") return null;
+  const parts = value.split("-").map((part) => Number(part));
+  if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) return null;
+  const [year, month, day] = parts;
+  if (year < 1900 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function normalizeHolidayItem(item: Record<string, unknown>) {
+  const date = parseHolidayDate(item.date ?? item.tanggal);
+  const name = String(item.name ?? item.description ?? item.keterangan ?? "").trim();
+  if (!date || !name) return null;
+
+  return {
+    date,
+    name,
+    is_cuti: Boolean(item.is_cuti) || /cuti bersama/i.test(name),
+  };
+}
+
+async function fetchHolidayApi(year: number) {
+  const configuredUrl = Deno.env.get("HOLIDAY_API_URL");
+  const endpoints = [
+    configuredUrl,
+    "https://libur.deno.dev/api",
+    "https://api-hari-libur.vercel.app/api",
+    "https://dayoffapi.vercel.app/api",
+  ].filter(Boolean) as string[];
+
+  const errors: string[] = [];
+  for (const endpoint of endpoints) {
+    const url = new URL(endpoint);
+    url.searchParams.set("year", String(year));
+
+    try {
+      const response = await fetch(url, {
+        headers: { accept: "application/json" },
+      });
+
+      if (!response.ok) {
+        errors.push(`${url.origin}: HTTP ${response.status}`);
+        continue;
+      }
+
+      const payload = await response.json();
+      const items = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.data)
+          ? payload.data
+          : [];
+
+      const holidays = items
+        .filter((item: unknown): item is Record<string, unknown> => item !== null && typeof item === "object")
+        .map(normalizeHolidayItem)
+        .filter(Boolean) as Array<{ date: string; name: string; is_cuti: boolean }>;
+
+      if (holidays.length > 0) {
+        return { holidays, source: url.origin };
+      }
+
+      errors.push(`${url.origin}: response kosong`);
+    } catch (error) {
+      errors.push(`${url.origin}: ${error instanceof Error ? error.message : "gagal fetch"}`);
+    }
+  }
+
+  throw new Error(errors.join("; "));
+}
+
 function daysInMonth(year: number, month: number) {
   return new Date(year, month, 0).getDate();
 }
@@ -476,6 +555,73 @@ async function restoreHoliday(req: Request, id: number) {
   if (error) return bad(error.message, 400);
   await logAudit("UPDATE", "HOLIDAY", `Mengembalikan hari libur: ${data.name}`, admin, id);
   return json(data);
+}
+
+async function syncHolidays(req: Request, url: URL) {
+  const admin = await requireAdmin(req, true);
+  const yearParam = Number(url.searchParams.get("year"));
+  const year = Number.isFinite(yearParam) && yearParam >= 1900 ? yearParam : currentYearJakarta();
+  const { holidays: apiHolidays, source } = await fetchHolidayApi(year);
+  const stats = { added: 0, updated: 0, skipped: 0 };
+
+  for (const holiday of apiHolidays) {
+    const { data: existing, error: findError } = await supabase
+      .from("holidays")
+      .select("*")
+      .eq("date", holiday.date)
+      .maybeSingle();
+
+    if (findError) return bad(findError.message, 500);
+
+    if (existing?.is_excluded) {
+      stats.skipped += 1;
+      continue;
+    }
+
+    if (existing) {
+      if (existing.is_auto) {
+        const { error } = await supabase
+          .from("holidays")
+          .update({
+            name: holiday.name,
+            is_cuti: holiday.is_cuti,
+            is_excluded: false,
+          })
+          .eq("id", existing.id);
+
+        if (error) return bad(error.message, 500);
+        stats.updated += 1;
+      } else {
+        stats.skipped += 1;
+      }
+      continue;
+    }
+
+    const { error } = await supabase.from("holidays").insert({
+      date: holiday.date,
+      name: holiday.name,
+      is_auto: true,
+      is_cuti: holiday.is_cuti,
+      is_excluded: false,
+    });
+
+    if (error) return bad(error.message, 500);
+    stats.added += 1;
+  }
+
+  await logAudit(
+    "CREATE",
+    "HOLIDAY",
+    `Sync hari libur dari API: ${stats.added} ditambahkan, ${stats.updated} diperbarui`,
+    admin,
+    undefined,
+    { ...stats, year, source },
+  );
+
+  return json({
+    ...stats,
+    message: `Berhasil sync ${stats.added} hari libur baru, ${stats.updated} diperbarui`,
+  });
 }
 
 async function schedulesList() {
@@ -895,7 +1041,7 @@ export async function handleAppRequest(req: Request, allowedPrefixes?: string[],
   const holidayRestoreMatch = path.match(/^\/api\/v1\/admin\/settings\/holidays\/(\d+)\/restore$/);
   if (holidayRestoreMatch && method === "POST") return restoreHoliday(req, Number(holidayRestoreMatch[1]));
   if (path === "/api/v1/admin/settings/holidays/sync" && method === "POST") {
-    return json({ added: 0, updated: 0, skipped: 0, message: "Sinkronisasi hari libur belum tersedia di Supabase Edge" });
+    return syncHolidays(req, url);
   }
   if (path === "/api/v1/admin/settings/schedules" && method === "GET") return schedulesList();
   if (path === "/api/v1/admin/settings/schedules" && method === "PATCH") return schedulesUpdate(req);
