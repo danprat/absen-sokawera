@@ -155,7 +155,7 @@ jobs:
             fi
           }
 
-          mkdir -p releases current
+          mkdir -p releases
           release_dir="releases/$(date +%Y%m%d%H%M%S)"
           mkdir -p "$release_dir"
           tar -xzf backend-release.tar.gz -C "$release_dir"
@@ -228,7 +228,8 @@ jobs:
           ./venv/bin/python -m alembic upgrade head
 
           cd "$DEPLOY_PATH"
-          ln -sfn "$release_dir" current
+          rm -rf current
+          ln -s "$release_dir" current
 
           if command -v supervisorctl >/dev/null 2>&1; then
             supervisorctl restart face-recognition || true
