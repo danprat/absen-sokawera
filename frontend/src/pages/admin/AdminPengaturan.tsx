@@ -34,8 +34,7 @@ import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/useAuth';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+import { resolveAssetUrl } from '@/lib/assets';
 
 export function AdminPengaturan() {
   const { isAdmin } = useAuth();
@@ -548,7 +547,7 @@ export function AdminPengaturan() {
                   {settings?.logo_url ? (
                     <div className="relative group overflow-hidden rounded-lg border bg-background w-32 h-32 flex items-center justify-center">
                       <img
-                        src={`${API_BASE_URL}${settings.logo_url}`}
+                        src={resolveAssetUrl(settings.logo_url)}
                         alt="Logo"
                         className="w-full h-full object-contain p-2"
                       />
@@ -618,7 +617,7 @@ export function AdminPengaturan() {
                   {settings?.background_url ? (
                     <div className="relative group overflow-hidden rounded-lg border bg-background w-48 h-32 flex items-center justify-center">
                       <img
-                        src={`${API_BASE_URL}${settings.background_url}`}
+                        src={resolveAssetUrl(settings.background_url)}
                         alt="Background"
                         className="w-full h-full object-cover"
                       />

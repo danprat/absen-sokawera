@@ -11,8 +11,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+import { resolveAssetUrl } from '@/lib/assets';
 
 const DaftarHadir = () => {
   const { settings } = useSettings();
@@ -85,9 +84,7 @@ const DaftarHadir = () => {
   };
 
   const getPhotoUrl = (photoUrl?: string) => {
-    if (!photoUrl) return undefined;
-    if (photoUrl.startsWith('http')) return photoUrl;
-    return `${API_BASE_URL}${photoUrl}`;
+    return resolveAssetUrl(photoUrl);
   };
 
   const renderSection = (title: string, items: AttendanceRecord[], titleColor: string) => {

@@ -32,8 +32,7 @@ import {
 import { api, BackendAttendanceTodayItem, BackendAttendanceSummary } from '@/lib/api';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+import { resolveAssetUrl } from '@/lib/assets';
 
 type AttendanceStatus = 'hadir' | 'terlambat' | 'izin' | 'sakit' | 'alfa';
 
@@ -229,7 +228,7 @@ export function AdminAbsensi() {
                         <div className="flex items-center gap-3">
                           <Avatar className="h-10 w-10 border border-slate-100">
                             {record.employee_photo && (
-                              <AvatarImage src={`${API_BASE_URL}${record.employee_photo}`} className="object-cover" />
+                              <AvatarImage src={resolveAssetUrl(record.employee_photo)} className="object-cover" />
                             )}
                             <AvatarFallback className="bg-primary/5 text-primary text-xs font-medium">
                               {record.employee_name.substring(0, 2).toUpperCase()}
@@ -287,7 +286,7 @@ export function AdminAbsensi() {
                     <div className="flex items-center gap-3">
                       <Avatar className="h-10 w-10 border border-slate-100">
                         {record.employee_photo && (
-                          <AvatarImage src={`${API_BASE_URL}${record.employee_photo}`} className="object-cover" />
+                          <AvatarImage src={resolveAssetUrl(record.employee_photo)} className="object-cover" />
                         )}
                         <AvatarFallback className="bg-primary/5 text-primary text-xs font-medium">
                           {record.employee_name.substring(0, 2).toUpperCase()}
@@ -348,7 +347,7 @@ export function AdminAbsensi() {
               <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
                 <Avatar className="h-10 w-10">
                   {editingRecord.employee_photo && (
-                    <AvatarImage src={`${API_BASE_URL}${editingRecord.employee_photo}`} />
+                    <AvatarImage src={resolveAssetUrl(editingRecord.employee_photo)} />
                   )}
                   <AvatarFallback>{editingRecord.employee_name.substring(0, 2).toUpperCase()}</AvatarFallback>
                 </Avatar>

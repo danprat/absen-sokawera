@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+import { resolveAssetUrl } from '@/lib/assets';
 
 interface HeaderProps {
   villageName?: string;
@@ -41,7 +40,7 @@ export function Header({ villageName = 'Desa', officerName = 'Admin', logoUrl, c
           <div className="flex items-center gap-2">
             {logoUrl && (
               <img
-                src={`${API_BASE_URL}${logoUrl}`}
+                src={resolveAssetUrl(logoUrl)}
                 alt="Logo"
                 className="w-8 h-8 object-contain"
               />
@@ -65,7 +64,7 @@ export function Header({ villageName = 'Desa', officerName = 'Admin', logoUrl, c
         <div className="flex items-center gap-3">
           {logoUrl && (
             <img
-              src={`${API_BASE_URL}${logoUrl}`}
+              src={resolveAssetUrl(logoUrl)}
               alt="Logo"
               className="w-10 h-10 object-contain"
             />

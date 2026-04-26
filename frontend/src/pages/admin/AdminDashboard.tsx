@@ -6,8 +6,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { api, BackendAttendanceTodayAdminResponse, BackendAuditLog } from '@/lib/api';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+import { resolveAssetUrl } from '@/lib/assets';
 
 interface DashboardStats {
   totalEmployees: number;
@@ -185,7 +184,7 @@ export function AdminDashboard() {
             <div className="bg-background p-2 md:p-3 rounded-xl md:rounded-2xl shadow-sm border border-border/50">
               {logoUrl ? (
                 <img
-                  src={`${API_BASE_URL}${logoUrl}`}
+                  src={resolveAssetUrl(logoUrl)}
                   alt="Logo"
                   className="w-10 h-10 md:w-16 md:h-16 object-contain"
                 />
