@@ -21,8 +21,6 @@ jobs:
       FACE_SERVICE_API_KEY: ${{ secrets.FACE_SERVICE_API_KEY }}
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
-      SUPABASE_URL: https://${{ secrets.SUPABASE_PROJECT_ID }}.supabase.co
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       SECRET_KEY: ${{ secrets.SECRET_KEY }}
 
@@ -84,8 +82,6 @@ jobs:
             printf 'SECRET_KEY=%q\n' "${SECRET_KEY:-}"
             printf 'FACE_SERVICE_URL=%q\n' "${FACE_SERVICE_URL:-}"
             printf 'FACE_SERVICE_API_KEY=%q\n' "${FACE_SERVICE_API_KEY:-}"
-            printf 'SUPABASE_URL=%q\n' "${SUPABASE_URL:-}"
-            printf 'SUPABASE_SERVICE_ROLE_KEY=%q\n' "${SUPABASE_SERVICE_ROLE_KEY:-}"
           } > backend-env
 
       - name: Configure SSH
@@ -254,16 +250,6 @@ jobs:
               --target-url "$DATABASE_URL"
           else
             echo "Skipping face-core database copy; no distinct legacy source database URL found."
-          fi
-
-          if [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
-            SUPABASE_URL="$SUPABASE_URL" \
-            SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY" \
-            PYTHONPATH=. ./venv/bin/python scripts/migrate_supabase_face_photos_to_local.py \
-              --supabase-url "$SUPABASE_URL" \
-              --service-role-key "$SUPABASE_SERVICE_ROLE_KEY"
-          else
-            echo "Skipping Supabase-to-local face photo migration; Supabase credentials are not configured."
           fi
 
           find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
