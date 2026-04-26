@@ -557,6 +557,24 @@ async function restoreHoliday(req: Request, id: number) {
   return json(data);
 }
 
+async function deleteHoliday(req: Request, id: number) {
+  const admin = await requireAdmin(req, true);
+  const { data: holiday, error: findError } = await supabase.from("holidays").select("*").eq("id", id).single();
+  if (findError || !holiday) return bad("Hari libur tidak ditemukan", 404);
+
+  await logAudit("DELETE", "HOLIDAY", `Menghapus hari libur: ${holiday.name} (${holiday.date})`, admin, id);
+
+  if (holiday.is_auto) {
+    const { error } = await supabase.from("holidays").update({ is_excluded: true }).eq("id", id);
+    if (error) return bad(error.message, 400);
+    return empty();
+  }
+
+  const { error } = await supabase.from("holidays").delete().eq("id", id);
+  if (error) return bad(error.message, 400);
+  return empty();
+}
+
 async function syncHolidays(req: Request, url: URL) {
   const admin = await requireAdmin(req, true);
   const yearParam = Number(url.searchParams.get("year"));
@@ -1037,7 +1055,7 @@ export async function handleAppRequest(req: Request, allowedPrefixes?: string[],
   if (path === "/api/v1/admin/settings/holidays/excluded" && method === "GET") return holidays(url, true);
   if (path === "/api/v1/admin/settings/holidays" && method === "POST") return simpleCrud(req, "holidays", "HOLIDAY");
   const holidayMatch = path.match(/^\/api\/v1\/admin\/settings\/holidays\/(\d+)$/);
-  if (holidayMatch && method === "DELETE") return simpleCrud(req, "holidays", "HOLIDAY", Number(holidayMatch[1]));
+  if (holidayMatch && method === "DELETE") return deleteHoliday(req, Number(holidayMatch[1]));
   const holidayRestoreMatch = path.match(/^\/api\/v1\/admin\/settings\/holidays\/(\d+)\/restore$/);
   if (holidayRestoreMatch && method === "POST") return restoreHoliday(req, Number(holidayRestoreMatch[1]));
   if (path === "/api/v1/admin/settings/holidays/sync" && method === "POST") {
