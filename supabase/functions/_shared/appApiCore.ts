@@ -64,6 +64,44 @@ async function invalidateFaceServiceAttendanceCache() {
   }
 }
 
+function faceServiceHeaders() {
+  const faceServiceApiKey = Deno.env.get("FACE_SERVICE_API_KEY");
+  if (!faceServiceApiKey) return null;
+  return {
+    "x-face-app-key": faceServiceApiKey,
+    "x-face-service-key": faceServiceApiKey,
+  };
+}
+
+function faceServiceBaseUrl() {
+  return Deno.env.get("FACE_SERVICE_URL")?.replace(/\/+$/, "") || null;
+}
+
+async function getFaceCountForEmployee(employeeId: number): Promise<number> {
+  const baseUrl = faceServiceBaseUrl();
+  const headers = faceServiceHeaders();
+  if (!baseUrl || !headers) return 0;
+
+  try {
+    const subjectsUrl = new URL(`${baseUrl}/api/v1/subjects`);
+    subjectsUrl.searchParams.set("external_subject_id", String(employeeId));
+    const subjectsResponse = await fetch(subjectsUrl, { headers });
+    if (!subjectsResponse.ok) return 0;
+
+    const subjects = await subjectsResponse.json();
+    const subject = Array.isArray(subjects) ? subjects[0] : null;
+    if (!subject?.id) return 0;
+
+    const facesResponse = await fetch(`${baseUrl}/api/v1/subjects/${subject.id}/faces`, { headers });
+    if (!facesResponse.ok) return 0;
+    const faces = await facesResponse.json();
+    return Array.isArray(faces) ? faces.length : 0;
+  } catch (error) {
+    console.warn("Face count lookup failed", error);
+    return 0;
+  }
+}
+
 function parseBool(value: string | null) {
   if (value === null || value === undefined || value === "") return undefined;
   return value === "true" || value === "1";
@@ -442,26 +480,10 @@ async function listEmployees(url: URL) {
   const { data, count, error } = await query.order("name").range(from, to);
   if (error) return bad(error.message, 500);
 
-  const ids = (data || []).map((employee) => employee.id);
-  const { data: subjects } = ids.length
-    ? await supabase
-      .from("face_subjects")
-      .select("id, external_subject_id")
-      .eq("tenant_id", "default")
-      .in("external_subject_id", ids.map(String))
-    : { data: [] };
-  const subjectEmployeeIds = new Map<number, number>();
-  (subjects || []).forEach((subject) => {
-    subjectEmployeeIds.set(subject.id, Number(subject.external_subject_id));
-  });
-  const { data: faces } = subjectEmployeeIds.size
-    ? await supabase.from("face_templates").select("subject_id").in("subject_id", Array.from(subjectEmployeeIds.keys()))
-    : { data: [] };
   const faceCounts = new Map<number, number>();
-  (faces || []).forEach((face) => {
-    const employeeId = subjectEmployeeIds.get(face.subject_id);
-    if (employeeId) faceCounts.set(employeeId, (faceCounts.get(employeeId) || 0) + 1);
-  });
+  await Promise.all((data || []).map(async (employee) => {
+    faceCounts.set(employee.id, await getFaceCountForEmployee(employee.id));
+  }));
 
   return json({
     items: (data || []).map((employee) => ({ ...employee, face_count: faceCounts.get(employee.id) || 0 })),
@@ -474,16 +496,7 @@ async function listEmployees(url: URL) {
 async function getEmployee(id: number) {
   const { data, error } = await supabase.from("employees").select("*").eq("id", id).single();
   if (error) return bad("Pegawai tidak ditemukan", 404);
-  const { data: subject } = await supabase
-    .from("face_subjects")
-    .select("id")
-    .eq("tenant_id", "default")
-    .eq("external_subject_id", String(id))
-    .maybeSingle();
-  const { count } = subject?.id
-    ? await supabase.from("face_templates").select("id", { count: "exact", head: true }).eq("subject_id", subject.id)
-    : { count: 0 };
-  return json({ ...data, face_count: count || 0 });
+  return json({ ...data, face_count: await getFaceCountForEmployee(id) });
 }
 
 async function createEmployee(req: Request) {
