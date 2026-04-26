@@ -1,6 +1,5 @@
 from app.models.admin import Admin
 from app.models.employee import Employee
-from app.models.face_embedding import FaceEmbedding
 from app.models.face_client import FaceClient
 from app.models.face_subject import FaceSubject
 from app.models.face_template import FaceTemplate
@@ -15,7 +14,6 @@ from app.models.survey import ServiceType, SurveyQuestion, SurveyResponse, Fille
 __all__ = [
     "Admin",
     "Employee",
-    "FaceEmbedding",
     "FaceClient",
     "FaceSubject",
     "FaceTemplate",

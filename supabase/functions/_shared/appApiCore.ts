@@ -1228,7 +1228,7 @@ async function simpleCrud(req: Request, table: string, entity: string, id?: numb
   return bad("Unsupported operation", 405);
 }
 
-export async function handleAppRequest(req: Request, allowedPrefixes?: string[], serviceName = "app-api") {
+export async function handleAppRequest(req: Request, allowedPrefixes?: string[], serviceName = "module-api") {
   const url = new URL(req.url);
   const path = stripRoute(url);
   const method = req.method;
@@ -1283,9 +1283,6 @@ export async function handleAppRequest(req: Request, allowedPrefixes?: string[],
 
   if (path === "/api/v1/attendance/today" && method === "GET") return json(await attendanceToday(false));
   if (path === "/api/v1/attendance/confirm" && method === "POST") return confirmAttendance(req);
-  if (path === "/api/v1/attendance/recognize") {
-    return bad("Face recognition belum dimigrasi ke Supabase-only runtime", 501);
-  }
   if (path === "/api/v1/admin/attendance" && method === "GET") {
     await requireAdmin(req);
     return listAttendance(url);
@@ -1384,7 +1381,7 @@ export async function handleAppRequest(req: Request, allowedPrefixes?: string[],
   return bad(`Unsupported path: ${path}`, 404);
 }
 
-export async function handleAppRequestWithErrors(req: Request, allowedPrefixes?: string[], serviceName = "app-api") {
+export async function handleAppRequestWithErrors(req: Request, allowedPrefixes?: string[], serviceName = "module-api") {
   try {
     return await handleAppRequest(req, allowedPrefixes, serviceName);
   } catch (error) {

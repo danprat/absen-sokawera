@@ -13,8 +13,6 @@ import numpy as np
 from PIL import Image
 from sqlalchemy.orm import Session
 from app.config import get_settings
-from app.models.employee import Employee
-from app.models.face_embedding import FaceEmbedding
 from app.models.face_subject import FaceSubject
 from app.models.face_template import FaceTemplate
 
@@ -34,11 +32,7 @@ class FaceRecognitionService:
         # 0.6 is typical, 0.5 is more strict, 0.4 is very strict
         self.tolerance = 0.5
 
-        # === OPTIMIZATION 1: Memory Cache ===
-        self._embedding_cache: Dict[int, List[dict]] = {}  # employee_id -> list of embeddings
         self._template_cache: Dict[str, Dict[int, List[dict]]] = {}
-        self._cache_version: int = 0
-        self._cache_initialized: bool = False
         self._template_cache_initialized: set[str] = set()
 
     @property
@@ -86,54 +80,6 @@ class FaceRecognitionService:
             print(f"Error loading image: {e}")
             return None
     
-    def refresh_embedding_cache(self, db: Session) -> int:
-        """
-        === OPTIMIZATION 1: Memory Cache ===
-        Load all embeddings into memory for faster matching.
-        Returns number of embeddings cached.
-        """
-        if not self.enabled:
-            return 0
-        
-        try:
-            embeddings = db.query(FaceEmbedding).join(Employee).filter(
-                Employee.is_active == True
-            ).all()
-            
-            self._embedding_cache = {}
-            expected_size = 128 * 4  # 512 bytes
-            
-            for fe in embeddings:
-                # Skip incompatible embeddings
-                if not fe.embedding or len(fe.embedding) != expected_size:
-                    continue
-                    
-                if fe.employee_id not in self._embedding_cache:
-                    self._embedding_cache[fe.employee_id] = []
-                
-                self._embedding_cache[fe.employee_id].append({
-                    'id': fe.id,
-                    'embedding': np.frombuffer(fe.embedding, dtype=np.float32).copy(),
-                    'employee': fe.employee,
-                    'is_primary': fe.is_primary
-                })
-            
-            self._cache_version += 1
-            self._cache_initialized = True
-            
-            total_embeddings = sum(len(v) for v in self._embedding_cache.values())
-            self._debug(f"[Cache] Refreshed: {total_embeddings} embeddings for {len(self._embedding_cache)} employees")
-            
-            return total_embeddings
-        except Exception as e:
-            print(f"[Cache] Refresh error: {e}")
-            return 0
-    
-    def invalidate_cache(self):
-        """Invalidate cache to force refresh on next match."""
-        self._cache_initialized = False
-        self._debug("[Cache] Invalidated")
-
     def invalidate_template_cache(self, tenant_id: Optional[str] = None):
         """Invalidate agnostic face-template cache."""
         if tenant_id:
@@ -253,100 +199,6 @@ class FaceRecognitionService:
         distances = np.linalg.norm(stored_embeddings - new_embedding, axis=1)
         return distances
     
-    def find_matching_employee(
-        self,
-        image_data: bytes,
-        db: Session,
-        threshold: float = 0.40
-    ) -> Tuple[Optional[Employee], float]:
-        """
-        Find the employee matching the face in the image.
-        Uses deep learning face encodings for high accuracy.
-        
-        === OPTIMIZATIONS APPLIED ===
-        1. Memory caching - embeddings loaded from cache instead of DB
-        2. NumPy batch comparison - vectorized distance calculation
-        3. Image resizing - smaller images processed faster
-        
-        threshold: minimum similarity score (0.40 = distance < 0.60, stricter)
-        """
-        if not self.enabled:
-            # Fallback: return first active employee for testing
-            employee = db.query(Employee).filter(Employee.is_active == True).first()
-            if employee:
-                return employee, 0.90
-            return None, 0.0
-        
-        # Generate embedding from captured image (with resizing optimization)
-        new_embedding_bytes = self.generate_embedding(image_data)
-        if new_embedding_bytes is None:
-            self._debug("Failed to generate embedding from captured image")
-            return None, 0.0
-        
-        new_embedding = np.frombuffer(new_embedding_bytes, dtype=np.float32)
-        
-        # === OPTIMIZATION 1: Use cache if available ===
-        if not self._cache_initialized:
-            self.refresh_embedding_cache(db)
-        
-        if not self._embedding_cache:
-            self._debug("No embeddings in cache")
-            return None, 0.0
-        
-        # === OPTIMIZATION 2: Batch comparison ===
-        # Prepare all embeddings in a single numpy array for vectorized comparison
-        all_embeddings = []
-        embedding_metadata = []  # Track which embedding belongs to which employee
-        
-        for emp_id, emp_data_list in self._embedding_cache.items():
-            for emp_data in emp_data_list:
-                all_embeddings.append(emp_data['embedding'])
-                embedding_metadata.append({
-                    'employee_id': emp_id,
-                    'employee': emp_data['employee'],
-                    'face_id': emp_data['id'],
-                    'is_primary': emp_data['is_primary']
-                })
-        
-        if not all_embeddings:
-            self._debug("No valid embeddings to compare")
-            return None, 0.0
-        
-        # Stack all embeddings into a 2D array for batch processing
-        all_embeddings_array = np.array(all_embeddings)
-        
-        # Vectorized distance calculation (MUCH faster than loop)
-        distances = self._batch_compare(new_embedding, all_embeddings_array)
-        similarities = np.maximum(0, 1 - (distances / 1.0))
-
-        self._debug(f"[Batch] Compared against {len(all_embeddings)} embeddings")
-        
-        # Group by employee and find best score per employee
-        employee_scores: Dict[int, Tuple[Employee, float, int]] = {}
-        
-        for i, (meta, similarity) in enumerate(zip(embedding_metadata, similarities)):
-            emp_id = meta['employee_id']
-            
-            if emp_id not in employee_scores or similarity > employee_scores[emp_id][1]:
-                employee_scores[emp_id] = (meta['employee'], similarity, meta['face_id'])
-        
-        # Find overall best match
-        best_match: Optional[Employee] = None
-        best_score: float = 0.0
-        
-        for emp_id, (employee, score, face_id) in employee_scores.items():
-            if score > best_score:
-                best_score = score
-                if score >= threshold:
-                    best_match = employee
-        
-        if best_match:
-            self._debug(f"Best match: {best_match.name} with score {best_score:.3f}")
-        else:
-            self._debug(f"No match found. Best score was {best_score:.3f} (threshold: {threshold})")
-        
-        return best_match, best_score
-
     def refresh_template_cache(self, db: Session, tenant_id: str) -> int:
         if not self.enabled:
             return 0

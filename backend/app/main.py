@@ -8,14 +8,8 @@ from slowapi.errors import RateLimitExceeded
 import os
 
 from app.config import get_settings
-from app.database import engine, Base, SessionLocal
-from app.routers import (
-    auth, employees, face, face_core, attendance, admin_attendance,
-    reports, settings, audit, public,
-    guestbook, survey, admin_guestbook, admin_survey,
-    admin_management
-)
-from app.services.face_recognition import face_recognition_service
+from app.database import engine, Base
+from app.routers import face_core
 
 settings_config = get_settings()
 
@@ -24,8 +18,8 @@ settings_config = get_settings()
 limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(
-    title="Sistem Absensi Desa",
-    description="Backend API untuk sistem absensi pegawai desa berbasis face recognition",
+    title="Face Recognition Service",
+    description="Tenant-scoped agnostic face recognition API",
     version="1.0.0"
 )
 
@@ -52,34 +46,13 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 # API Routes
 API_PREFIX = "/api/v1"
 
-app.include_router(auth.router, prefix=API_PREFIX)
-app.include_router(employees.router, prefix=API_PREFIX)
-app.include_router(face.router, prefix=API_PREFIX)
 app.include_router(face_core.router, prefix=API_PREFIX)
-app.include_router(attendance.router, prefix=API_PREFIX)
-app.include_router(admin_attendance.router, prefix=API_PREFIX)
-app.include_router(reports.router, prefix=API_PREFIX)
-app.include_router(settings.router, prefix=API_PREFIX)
-app.include_router(audit.router, prefix=API_PREFIX)
-app.include_router(public.router, prefix=API_PREFIX)
-app.include_router(guestbook.router, prefix=API_PREFIX)
-app.include_router(survey.router, prefix=API_PREFIX)
-app.include_router(admin_guestbook.router, prefix=API_PREFIX)
-app.include_router(admin_survey.router, prefix=API_PREFIX)
-app.include_router(admin_management.router, prefix=API_PREFIX)
 
 
 @app.on_event("startup")
 def on_startup():
     if settings_config.AUTO_CREATE_SCHEMA:
         Base.metadata.create_all(bind=engine)
-
-    if settings_config.PRELOAD_FACE_EMBEDDINGS and face_recognition_service.enabled:
-        db = SessionLocal()
-        try:
-            face_recognition_service.refresh_embedding_cache(db)
-        finally:
-            db.close()
 
 
 @app.get("/health")
@@ -133,7 +106,7 @@ else:
     @app.get("/")
     def root():
         return {
-            "message": "Sistem Absensi Desa API",
+            "message": "Face Recognition Service API",
             "version": "1.0.0",
-            "note": "Frontend not mounted. Build frontend first: cd ../tap-to-attend && npm run build"
+            "routes": ["/api/v1/subjects", "/api/v1/detect", "/api/v1/recognize", "/health"]
         }

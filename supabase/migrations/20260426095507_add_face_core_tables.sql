@@ -72,33 +72,3 @@ on conflict (tenant_id, external_subject_id) do update set
     metadata = excluded.metadata,
     is_active = excluded.is_active,
     updated_at = excluded.updated_at;
-
-insert into public.face_templates (
-    tenant_id,
-    subject_id,
-    embedding,
-    photo_url,
-    model_name,
-    embedding_version,
-    is_primary,
-    created_at
-)
-select
-    fe.tenant_id,
-    fs.id,
-    fe.embedding,
-    fe.photo_url,
-    fe.model_name,
-    fe.embedding_version,
-    fe.is_primary,
-    fe.created_at
-from public.face_embeddings fe
-join public.employees e on e.id = fe.employee_id
-join public.face_subjects fs on fs.tenant_id = e.tenant_id and fs.external_subject_id = e.id::text
-where not exists (
-    select 1
-    from public.face_templates existing
-    where existing.tenant_id = fe.tenant_id
-      and existing.subject_id = fs.id
-      and existing.photo_url = fe.photo_url
-);

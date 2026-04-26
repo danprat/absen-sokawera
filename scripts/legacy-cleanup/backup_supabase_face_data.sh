@@ -19,7 +19,6 @@ pg_dump "$DATABASE_URL" \
   --table=public.face_clients \
   --table=public.face_subjects \
   --table=public.face_templates \
-  --table=public.face_embeddings \
   > "$output"
 
 sha256sum "$output" > "${output}.sha256" 2>/dev/null || shasum -a 256 "$output" > "${output}.sha256"

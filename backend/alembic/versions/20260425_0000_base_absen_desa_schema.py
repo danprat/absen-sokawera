@@ -183,25 +183,6 @@ def upgrade() -> None:
     op.execute("create index if not exists ix_survey_questions_id on survey_questions (id)")
 
     op.execute("""
-        create table if not exists face_embeddings (
-            id serial primary key,
-            tenant_id varchar(64) not null default 'default',
-            employee_id integer not null references employees(id),
-            embedding bytea not null,
-            photo_url varchar(500) not null,
-            is_primary boolean not null default false,
-            embedding_version varchar(32) not null default 'v1',
-            model_name varchar(100) not null default 'face_recognition',
-            created_at timestamp without time zone default now()
-        )
-    """)
-    op.execute("create index if not exists ix_face_embeddings_id on face_embeddings (id)")
-    op.execute("create index if not exists ix_face_embeddings_employee_id on face_embeddings (employee_id)")
-    op.execute("create index if not exists ix_face_embeddings_tenant_id on face_embeddings (tenant_id)")
-    op.execute("create index if not exists ix_face_embeddings_tenant_employee on face_embeddings (tenant_id, employee_id)")
-    op.execute("create index if not exists ix_face_embeddings_embedding_version on face_embeddings (embedding_version, model_name)")
-
-    op.execute("""
         create table if not exists attendance_logs (
             id serial primary key,
             tenant_id varchar(64) not null default 'default',
@@ -262,7 +243,6 @@ def upgrade() -> None:
         "service_types",
         "survey_questions",
         "survey_responses",
-        "face_embeddings",
         "attendance_logs",
     ):
         op.execute(f"alter table {table} enable row level security")
@@ -308,7 +288,6 @@ def downgrade() -> None:
         "survey_responses",
         "guest_book_entries",
         "attendance_logs",
-        "face_embeddings",
         "survey_questions",
         "service_types",
         "guest_book_meeting_targets",

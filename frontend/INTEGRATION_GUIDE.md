@@ -80,7 +80,7 @@ Semua route `/admin/*` dilindungi oleh `ProtectedRoute`:
 ### Public Endpoints (No Auth Required)
 
 #### 1. Face Recognition & Attendance
-**Endpoint:** `POST /api/v1/attendance/recognize`
+**Endpoint:** `POST /api/v1/recognize` via `face-orchestrator`
 
 **Usage di CameraView.tsx:**
 ```typescript

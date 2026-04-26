@@ -72,8 +72,7 @@ Setelah server berjalan, akses:
 | Auth | `/api/v1/auth/login` | POST | No |
 | Employees | `/api/v1/employees` | GET, POST | Yes* |
 | Employees | `/api/v1/employees/{id}` | GET, PATCH, DELETE | Yes* |
-| Face | `/api/v1/employees/{id}/face` | GET, POST, DELETE | Yes |
-| Attendance | `/api/v1/attendance/recognize` | POST | No |
+| Face Core | `/api/v1/subjects`, `/api/v1/subjects/{id}/faces`, `/api/v1/faces/{id}`, `/api/v1/detect`, `/api/v1/recognize` | GET, POST, PATCH, DELETE | `X-Face-App-Key` |
 | Attendance | `/api/v1/attendance/today` | GET | No |
 | Admin | `/api/v1/admin/attendance` | GET, PATCH | Yes |
 | Reports | `/api/v1/admin/reports/monthly` | GET | Yes |

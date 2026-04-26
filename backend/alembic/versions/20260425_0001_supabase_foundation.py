@@ -31,23 +31,6 @@ def upgrade() -> None:
     """)
 
     op.execute("""
-        alter table if exists face_embeddings
-        add column if not exists tenant_id varchar(64) not null default 'default',
-        add column if not exists embedding_vector extensions.vector(128),
-        add column if not exists embedding_version varchar(32) not null default 'v1',
-        add column if not exists model_name varchar(100) not null default 'face_recognition'
-    """)
-    op.execute("create index if not exists ix_face_embeddings_tenant_id on face_embeddings (tenant_id)")
-    op.execute("create index if not exists ix_face_embeddings_tenant_employee on face_embeddings (tenant_id, employee_id)")
-    op.execute("create index if not exists ix_face_embeddings_embedding_version on face_embeddings (embedding_version, model_name)")
-    op.execute("""
-        create index if not exists ix_face_embeddings_embedding_vector_hnsw
-        on face_embeddings
-        using hnsw (embedding_vector extensions.vector_l2_ops)
-        where embedding_vector is not null
-    """)
-
-    op.execute("""
         alter table if exists attendance_logs
         add column if not exists tenant_id varchar(64) not null default 'default'
     """)
@@ -58,7 +41,7 @@ def upgrade() -> None:
         on attendance_logs (tenant_id, employee_id, date)
     """)
 
-    for table in ("employees", "face_embeddings", "attendance_logs"):
+    for table in ("employees", "attendance_logs"):
         op.execute(f"alter table if exists {table} enable row level security")
         op.execute(f"grant select, insert, update, delete on table {table} to authenticated")
         op.execute(f"""
@@ -141,25 +124,13 @@ def downgrade() -> None:
     op.execute("drop policy if exists tenant_storage_objects on storage.objects")
     op.execute("drop policy if exists branding_assets_public_read on storage.objects")
 
-    for table in ("attendance_logs", "face_embeddings", "employees"):
+    for table in ("attendance_logs", "employees"):
         op.execute(f"drop policy if exists {table}_tenant_isolation on {table}")
 
     op.execute("drop index if exists ix_attendance_logs_tenant_employee_date")
     op.execute("drop index if exists ix_attendance_logs_tenant_date")
     op.execute("drop index if exists ix_attendance_logs_tenant_id")
     op.execute("alter table if exists attendance_logs drop column if exists tenant_id")
-
-    op.execute("drop index if exists ix_face_embeddings_embedding_vector_hnsw")
-    op.execute("drop index if exists ix_face_embeddings_embedding_version")
-    op.execute("drop index if exists ix_face_embeddings_tenant_employee")
-    op.execute("drop index if exists ix_face_embeddings_tenant_id")
-    op.execute("""
-        alter table if exists face_embeddings
-        drop column if exists model_name,
-        drop column if exists embedding_version,
-        drop column if exists embedding_vector,
-        drop column if exists tenant_id
-    """)
 
     op.execute("drop index if exists uq_employees_tenant_external_id")
     op.execute("drop index if exists ix_employees_tenant_active")

@@ -1,8 +1,5 @@
 project_id = "api-absen-desa-local"
 
-[functions.app-api]
-verify_jwt = false
-
 [functions.auth-api]
 verify_jwt = false
 

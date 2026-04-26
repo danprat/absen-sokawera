@@ -23,16 +23,16 @@ Active module functions:
 - `survey-api`
 - `face-orchestrator`
 
-Legacy function retained for rollback:
+Legacy function removed in Stage 2:
 
 - `app-api`
 
-Face tables:
+Face tables after Stage 2:
 
 - Active: `face_clients`, `face_subjects`, `face_templates`
-- Legacy rollback source: `face_embeddings`
+- Removed legacy table: `face_embeddings`
 
-Before dropping `face_embeddings`, run:
+Before any future destructive face cleanup, run:
 
 ```bash
 psql "$DATABASE_URL" -f scripts/legacy-cleanup/supabase_face_cleanup_audit.sql
@@ -45,7 +45,7 @@ GitHub Actions manual cleanup:
 
 - Workflow: `Legacy Cleanup Audit`
 - `target=audit` writes a Supabase face-table audit artifact.
-- `target=backup` writes a SQL backup artifact for `face_clients`, `face_subjects`, `face_templates`, and `face_embeddings`.
+- `target=backup` writes a SQL backup artifact for `face_clients`, `face_subjects`, and `face_templates`.
 - `target=vps-cleanup`, `mode=dry-run` inventories safe VPS cleanup candidates.
 - `target=vps-cleanup`, `mode=execute` requires `confirm_execute=CLEANUP_LEGACY` and only removes candidates listed by `scripts/legacy-cleanup/vps_cleanup_dry_run.sh`.
 
