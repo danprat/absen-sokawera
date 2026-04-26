@@ -128,6 +128,7 @@ jobs:
             "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
             "DEPLOY_PATH='${{ secrets.VPS_DEPLOY_PATH }}' APP_PORT='${{ secrets.APP_PORT }}' PYTHON_VERSION='${{ secrets.PYTHON_VERSION }}' bash -s" <<'REMOTE'
           set -euo pipefail
+          export PYTHONDONTWRITEBYTECODE=1
           cd "$DEPLOY_PATH"
           source backend-env
           rm -f backend-env
@@ -349,6 +350,8 @@ jobs:
 
             echo "Current backend runtime inventory:"
             find current/backend -maxdepth 1 -mindepth 1 -printf '%M %s %p\n' | sort || true
+            echo "Current app runtime inventory:"
+            find current/backend/app -maxdepth 2 -mindepth 1 -printf '%M %s %p\n' | sort || true
 
             exit 0
           fi
