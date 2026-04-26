@@ -395,5 +395,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --show-error --silent \
-            "https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/face-orchestrator/health"
+          health_url="https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/face-orchestrator/health"
+          for attempt in 1 2 3 4 5; do
+            if curl --fail --show-error --silent "$health_url"; then
+              exit 0
+            fi
+            echo "face-orchestrator health check failed; retry ${attempt}/5" >&2
+            sleep 3
+          done
+          curl --fail --show-error --silent "$health_url"
