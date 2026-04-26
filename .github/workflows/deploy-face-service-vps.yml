@@ -45,6 +45,7 @@ jobs:
             SUPABASE_ACCESS_TOKEN
             SUPABASE_PROJECT_ID
             SUPABASE_SERVICE_ROLE_KEY
+            DATABASE_URL
             SECRET_KEY
           )
 
@@ -192,6 +193,8 @@ jobs:
             env_file="$release_dir/backend/.env"
           fi
 
+          legacy_database_url="$(grep -m1 '^DATABASE_URL=' "$env_file" | cut -d= -f2- || true)"
+
           for key in \
             DATABASE_URL \
             SECRET_KEY; do
@@ -223,7 +226,32 @@ jobs:
           "$python_bin" -m venv venv
           ./venv/bin/python -m pip install --upgrade pip "setuptools<81" wheel
           ./venv/bin/python -m pip install -r requirements.txt
-          ./venv/bin/python -m alembic upgrade head
+
+          PYTHONPATH=. ./venv/bin/python - <<'PY'
+          from sqlalchemy import inspect
+          from app.db import Base, engine
+          from app.face.models import FaceClient, FaceSubject, FaceTemplate
+
+          tables = [FaceClient.__table__, FaceSubject.__table__, FaceTemplate.__table__]
+          Base.metadata.create_all(bind=engine, tables=tables)
+          inspector = inspect(engine)
+          missing = [
+              table.name
+              for table in tables
+              if not inspector.has_table(table.name)
+          ]
+          if missing:
+              raise SystemExit(f"Missing face-core tables after schema creation: {', '.join(missing)}")
+          print("Face-core schema ready: face_clients, face_subjects, face_templates")
+          PY
+
+          if [ -n "${legacy_database_url:-}" ] && [ -n "${DATABASE_URL:-}" ] && [ "$legacy_database_url" != "$DATABASE_URL" ]; then
+            PYTHONPATH=. ./venv/bin/python scripts/migrate_face_core_database.py \
+              --source-url "$legacy_database_url" \
+              --target-url "$DATABASE_URL"
+          else
+            echo "Skipping face-core database copy; no distinct legacy source database URL found."
+          fi
 
           if [ -d "$DEPLOY_PATH/current/backend/uploads" ]; then
             PYTHONPATH=. ./venv/bin/python scripts/migrate_face_uploads_to_supabase.py \
