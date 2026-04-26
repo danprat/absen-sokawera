@@ -1,7 +1,7 @@
 import enum
 from sqlalchemy import Column, Integer, String, DateTime, Enum, JSON
 from sqlalchemy.sql import func
-from app.database import Base
+from app.db_base import Base
 
 
 class AuditAction(str, enum.Enum):
@@ -11,6 +11,7 @@ class AuditAction(str, enum.Enum):
     CORRECT = "correct"
     REORDER = "reorder"
     EXPORT = "export"
+    LOGIN = "login"
 
 
 class EntityType(str, enum.Enum):

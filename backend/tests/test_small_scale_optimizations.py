@@ -35,6 +35,7 @@ from app.utils.cache import (
     SETTINGS_CACHE_KEY,
     SURVEY_STATS_CACHE_KEY,
 )
+from app.utils.face_service_auth import require_face_service_key
 
 
 class DummyQuery:
@@ -673,6 +674,7 @@ def test_upload_face_refreshes_face_cache_after_commit(monkeypatch):
     assert events == ["write", "refresh_cache"]
     assert len(db.added) == 1
     assert db.added[0].embedding == "embedding-vector"
+    assert db.added[0].tenant_id == "default"
     assert db.added[0].is_primary is True
 
 
@@ -806,6 +808,53 @@ def test_face_recognition_debug_logging_defaults_to_false(monkeypatch):
     service = FaceRecognitionService()
 
     assert service.debug_logging is False
+
+
+def test_face_embedding_byte_vector_roundtrip():
+    vector = [float(index) for index in range(128)]
+    embedding = FaceRecognitionService.embedding_vector_to_bytes(vector)
+
+    assert len(embedding) == 128 * 4
+    assert FaceRecognitionService.embedding_bytes_to_vector(embedding) == vector
+
+
+def test_face_embedding_vector_rejects_wrong_dimensions():
+    try:
+        FaceRecognitionService.embedding_vector_to_bytes([0.0, 1.0])
+    except ValueError as exc:
+        assert "Expected 128 embedding dimensions" in str(exc)
+    else:
+        raise AssertionError("embedding_vector_to_bytes should reject non-128 dimension vectors")
+
+
+def test_face_service_key_not_required_by_default(monkeypatch):
+    get_settings.cache_clear()
+    monkeypatch.setenv("FACE_SERVICE_REQUIRE_API_KEY", "false")
+    monkeypatch.setenv("FACE_SERVICE_API_KEY", "expected-key")
+
+    assert require_face_service_key() is None
+
+
+def test_face_service_key_rejects_missing_or_wrong_key(monkeypatch):
+    get_settings.cache_clear()
+    monkeypatch.setenv("FACE_SERVICE_REQUIRE_API_KEY", "true")
+    monkeypatch.setenv("FACE_SERVICE_API_KEY", "expected-key")
+
+    for supplied_key in (None, "wrong-key"):
+        try:
+            require_face_service_key(supplied_key)
+        except Exception as exc:
+            assert getattr(exc, "status_code", None) == 401
+        else:
+            raise AssertionError("require_face_service_key should reject invalid keys")
+
+
+def test_face_service_key_accepts_matching_key(monkeypatch):
+    get_settings.cache_clear()
+    monkeypatch.setenv("FACE_SERVICE_REQUIRE_API_KEY", "true")
+    monkeypatch.setenv("FACE_SERVICE_API_KEY", "expected-key")
+
+    assert require_face_service_key("expected-key") is None
 
 
 

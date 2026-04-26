@@ -18,8 +18,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+import { resolveAssetUrl } from '@/lib/assets';
 
 const navItems = [
   { path: '/admin', icon: LayoutDashboard, label: 'Beranda', exact: true },
@@ -107,9 +106,9 @@ export function AdminLayout() {
                 sidebarOpen ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'
               }`}
             >
-              {logoUrl && (
-                <img
-                  src={`${API_BASE_URL}${logoUrl}`}
+                {logoUrl && (
+                  <img
+                  src={resolveAssetUrl(logoUrl)}
                   alt="Logo"
                   className="w-10 h-10 object-contain shrink-0"
                 />
@@ -210,7 +209,7 @@ export function AdminLayout() {
               <div className="flex items-center gap-3">
                 {logoUrl && (
                   <img
-                    src={`${API_BASE_URL}${logoUrl}`}
+                    src={resolveAssetUrl(logoUrl)}
                     alt="Logo"
                     className="w-10 h-10 object-contain"
                   />
@@ -284,7 +283,7 @@ export function AdminLayout() {
             </Button>
             {logoUrl && (
               <img
-                src={`${API_BASE_URL}${logoUrl}`}
+                src={resolveAssetUrl(logoUrl)}
                 alt="Logo"
                 className="w-6 h-6 object-contain"
               />

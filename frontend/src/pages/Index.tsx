@@ -3,8 +3,7 @@ import { motion } from 'framer-motion';
 import { Users, Globe } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { useSettings } from '@/hooks/useSettings';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+import { resolveAssetUrl } from '@/lib/assets';
 
 const menuItems = [
   {
@@ -37,7 +36,7 @@ const Index = () => {
       {hasBackground && (
         <div
           className="fixed inset-0 -z-10 bg-cover bg-center bg-no-repeat"
-          style={{ backgroundImage: `url(${API_BASE_URL}${settings.backgroundUrl})` }}
+          style={{ backgroundImage: `url(${resolveAssetUrl(settings.backgroundUrl)})` }}
         >
           <div className="absolute inset-0 bg-black/50" />
         </div>

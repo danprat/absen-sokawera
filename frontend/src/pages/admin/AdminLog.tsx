@@ -28,6 +28,9 @@ const actionConfig: Record<string, { label: string; color: string; icon: typeof 
   update: { label: 'Edit', color: 'bg-blue-500', icon: Edit2 },
   delete: { label: 'Hapus', color: 'bg-red-500', icon: Trash2 },
   correct: { label: 'Koreksi', color: 'bg-yellow-500', icon: RefreshCw },
+  reorder: { label: 'Urutkan', color: 'bg-purple-500', icon: RefreshCw },
+  export: { label: 'Ekspor', color: 'bg-slate-500', icon: FileText },
+  login: { label: 'Login', color: 'bg-emerald-500', icon: User },
 };
 
 const entityConfig: Record<string, string> = {
@@ -35,6 +38,17 @@ const entityConfig: Record<string, string> = {
   attendance: 'Absensi',
   settings: 'Pengaturan',
   holiday: 'Hari Libur',
+  daily_schedule: 'Jam Kerja',
+  admin: 'Admin',
+  service_type: 'Jenis Layanan',
+  survey_question: 'Pertanyaan Survey',
+  survey_response: 'Respons Survey',
+  guestbook: 'Buku Tamu',
+};
+
+const parseSupabaseTimestamp = (dateString: string) => {
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(dateString);
+  return new Date(hasTimezone ? dateString : `${dateString}Z`);
 };
 
 export function AdminLog() {
@@ -53,19 +67,33 @@ export function AdminLog() {
   const fetchLogs = async () => {
     try {
       setIsLoading(true);
-      const params: any = {
-        page: currentPage,
-        page_size: pageSize,
-      };
-      if (filterAction !== 'all') params.action = filterAction;
-      if (filterEntity !== 'all') params.entity_type = filterEntity;
-      if (debouncedSearch) params.search = debouncedSearch;
-      if (startDate) params.start_date = startDate;
-      if (endDate) params.end_date = endDate;
+      const response = await api.admin.auditLogs.list({
+        page: 1,
+        page_size: 100,
+      });
 
-      const response = await api.admin.auditLogs.list(params);
-      setLogs(response.items);
-      setTotalLogs(response.total);
+      const normalizedSearch = debouncedSearch.trim().toLowerCase();
+      const filtered = response.items.filter((log) => {
+        const action = log.action.toLowerCase();
+        const entityType = log.entity_type.toLowerCase();
+        const createdDate = log.created_at.slice(0, 10);
+        const matchesAction = filterAction === 'all' || action === filterAction;
+        const matchesEntity = filterEntity === 'all' || entityType === filterEntity;
+        const matchesStartDate = !startDate || createdDate >= startDate;
+        const matchesEndDate = !endDate || createdDate <= endDate;
+        const matchesSearch =
+          !normalizedSearch ||
+          log.description.toLowerCase().includes(normalizedSearch) ||
+          log.performed_by.toLowerCase().includes(normalizedSearch) ||
+          action.includes(normalizedSearch) ||
+          entityType.includes(normalizedSearch);
+
+        return matchesAction && matchesEntity && matchesStartDate && matchesEndDate && matchesSearch;
+      });
+
+      const from = (currentPage - 1) * pageSize;
+      setLogs(filtered.slice(from, from + pageSize));
+      setTotalLogs(filtered.length);
     } catch (error) {
       console.error('Failed to fetch logs:', error);
     } finally {
@@ -107,23 +135,17 @@ export function AdminLog() {
   };
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 60) return `${diffMins} menit lalu`;
-    if (diffHours < 24) return `${diffHours} jam lalu`;
-    if (diffDays < 7) return `${diffDays} hari lalu`;
-    return date.toLocaleDateString('id-ID', {
+    const date = parseSupabaseTimestamp(dateString);
+    const formatted = date.toLocaleString('id-ID', {
+      timeZone: 'Asia/Jakarta',
       day: 'numeric',
       month: 'short',
       year: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
     });
+
+    return `${formatted} WIB`;
   };
 
   const totalPages = Math.ceil(totalLogs / pageSize);
@@ -190,6 +212,9 @@ export function AdminLog() {
                     <SelectItem value="update">Edit</SelectItem>
                     <SelectItem value="delete">Hapus</SelectItem>
                     <SelectItem value="correct">Koreksi</SelectItem>
+                    <SelectItem value="reorder">Urutkan</SelectItem>
+                    <SelectItem value="export">Ekspor</SelectItem>
+                    <SelectItem value="login">Login</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -205,6 +230,12 @@ export function AdminLog() {
                     <SelectItem value="attendance">Absensi</SelectItem>
                     <SelectItem value="settings">Pengaturan</SelectItem>
                     <SelectItem value="holiday">Hari Libur</SelectItem>
+                    <SelectItem value="daily_schedule">Jam Kerja</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                    <SelectItem value="service_type">Jenis Layanan</SelectItem>
+                    <SelectItem value="survey_question">Pertanyaan Survey</SelectItem>
+                    <SelectItem value="survey_response">Respons Survey</SelectItem>
+                    <SelectItem value="guestbook">Buku Tamu</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -300,7 +331,9 @@ export function AdminLog() {
               <>
                 <div className="divide-y divide-border">
                   {logs.map((log) => {
-                    const config = actionConfig[log.action] || { label: log.action, color: 'bg-gray-500', icon: FileText };
+                    const action = log.action.toLowerCase();
+                    const entityType = log.entity_type.toLowerCase();
+                    const config = actionConfig[action] || { label: log.action, color: 'bg-gray-500', icon: FileText };
                     const Icon = config.icon;
                     return (
                       <div
@@ -330,7 +363,7 @@ export function AdminLog() {
                                 {config.label}
                               </Badge>
                               <Badge variant="secondary" className="text-[10px] uppercase font-bold tracking-wider px-2 py-0 h-5">
-                                {entityConfig[log.entity_type] || log.entity_type}
+                                {entityConfig[entityType] || log.entity_type}
                               </Badge>
                             </div>
                           </div>
@@ -423,4 +456,3 @@ export function AdminLog() {
     </motion.div>
   );
 }
-

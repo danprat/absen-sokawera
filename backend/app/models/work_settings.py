@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Time, Float, DateTime
 from sqlalchemy.sql import func
 from datetime import time
-from app.database import Base
+from app.db_base import Base
 
 
 class WorkSettings(Base):

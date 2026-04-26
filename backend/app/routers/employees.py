@@ -11,8 +11,10 @@ from app.schemas.employee import (
 )
 from app.utils.auth import get_current_admin, require_admin_role
 from app.utils.audit import log_audit
+from app.config import get_settings
 
 router = APIRouter(prefix="/employees", tags=["Employees"])
+settings = get_settings()
 
 
 @router.get("", response_model=EmployeeListResponse)
@@ -63,7 +65,9 @@ def create_employee(
                 detail="NIK sudah digunakan"
             )
     
-    employee = Employee(**data.model_dump())
+    employee_data = data.model_dump()
+    employee_data["tenant_id"] = employee_data.get("tenant_id") or settings.DEFAULT_TENANT_ID
+    employee = Employee(**employee_data)
     db.add(employee)
     db.commit()
     db.refresh(employee)

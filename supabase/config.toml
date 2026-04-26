@@ -1,0 +1,38 @@
+project_id = "api-absen-desa-local"
+
+[functions.app-api]
+verify_jwt = false
+
+[functions.auth-api]
+verify_jwt = false
+
+[functions.public-api]
+verify_jwt = false
+
+[functions.employees-api]
+verify_jwt = false
+
+[functions.attendance-api]
+verify_jwt = false
+
+[functions.admin-settings-api]
+verify_jwt = false
+
+[functions.admin-reports-api]
+verify_jwt = false
+
+[functions.audit-api]
+verify_jwt = false
+
+[functions.admins-api]
+verify_jwt = false
+
+[functions.guestbook-api]
+verify_jwt = false
+
+[functions.survey-api]
+verify_jwt = false
+
+[functions.face-orchestrator]
+verify_jwt = false
+import_map = "./functions/import_map.json"

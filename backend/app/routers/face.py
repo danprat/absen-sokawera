@@ -9,8 +9,11 @@ from app.models.face_embedding import FaceEmbedding
 from app.schemas.face import FaceEmbeddingResponse, FaceUploadResponse
 from app.utils.auth import get_current_admin, require_admin_role
 from app.services.face_recognition import face_recognition_service
+from app.config import get_settings
+from app.utils.face_service_auth import require_face_service_key
 
 router = APIRouter(prefix="/employees", tags=["Face Enrollment"])
+settings = get_settings()
 
 UPLOAD_DIR = "uploads/faces"
 
@@ -26,6 +29,7 @@ async def upload_face(
     employee_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    _: None = Depends(require_face_service_key),
     admin: Admin = Depends(require_admin_role)
 ):
     employee = db.query(Employee).filter(Employee.id == employee_id).first()
@@ -70,6 +74,7 @@ async def upload_face(
     ).count()
     
     face_embedding = FaceEmbedding(
+        tenant_id=employee.tenant_id or settings.DEFAULT_TENANT_ID,
         employee_id=employee_id,
         embedding=embedding,
         photo_url=f"/uploads/faces/{filename}",
@@ -91,6 +96,7 @@ async def upload_face(
 @router.get("/{employee_id}/face", response_model=list[FaceEmbeddingResponse])
 def list_faces(
     employee_id: int,
+    _: None = Depends(require_face_service_key),
     db: Session = Depends(get_db)
 ):
     employee = db.query(Employee).filter(Employee.id == employee_id).first()
@@ -110,6 +116,7 @@ def delete_face(
     employee_id: int,
     face_id: int,
     db: Session = Depends(get_db),
+    _: None = Depends(require_face_service_key),
     admin: Admin = Depends(require_admin_role)
 ):
     face = db.query(FaceEmbedding).filter(

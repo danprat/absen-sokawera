@@ -24,8 +24,7 @@ import { Label } from '@/components/ui/label';
 import { api, BackendEmployee, BackendFaceEmbedding } from '@/lib/api';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+import { resolveAssetUrl } from '@/lib/assets';
 
 export function AdminPegawai() {
   const { isAdmin } = useAuth();
@@ -443,7 +442,7 @@ export function AdminPegawai() {
                       <div className="flex items-center gap-3">
                         {employee.photo_url ? (
                           <img
-                            src={`${API_BASE_URL}${employee.photo_url}`}
+                            src={resolveAssetUrl(employee.photo_url)}
                             alt={employee.name}
                             className="w-10 h-10 rounded-full object-cover"
                           />
@@ -542,7 +541,7 @@ export function AdminPegawai() {
                   <div className="flex items-center gap-3">
                     {employee.photo_url ? (
                       <img
-                        src={`${API_BASE_URL}${employee.photo_url}`}
+                        src={resolveAssetUrl(employee.photo_url)}
                         alt={employee.name}
                         className="w-12 h-12 rounded-full object-cover"
                       />
@@ -720,7 +719,7 @@ export function AdminPegawai() {
                   {facePhotos.map((photo) => (
                     <div key={photo.id} className="relative group">
                       <img
-                        src={`${API_BASE_URL}${photo.photo_url}`}
+                        src={resolveAssetUrl(photo.photo_url)}
                         alt="Face"
                         className="w-full aspect-square object-cover rounded-lg border"
                       />

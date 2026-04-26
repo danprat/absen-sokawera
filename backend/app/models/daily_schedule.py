@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, Boolean, Time, DateTime
 from sqlalchemy.sql import func
 from datetime import time
-from app.database import Base
+from app.db_base import Base
 
 
 class DailyWorkSchedule(Base):
