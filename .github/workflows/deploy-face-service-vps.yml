@@ -45,6 +45,7 @@ jobs:
             FACE_SERVICE_API_KEY
             SUPABASE_ACCESS_TOKEN
             SUPABASE_PROJECT_ID
+            SECRET_KEY
           )
 
           for name in "${required[@]}"; do
@@ -298,6 +299,7 @@ jobs:
           supabase secrets set \
             "FACE_SERVICE_URL=${FACE_SERVICE_URL}" \
             "FACE_SERVICE_API_KEY=${FACE_SERVICE_API_KEY}" \
+            "APP_JWT_SECRET=${SECRET_KEY}" \
             --project-ref "${SUPABASE_PROJECT_ID}"
 
       - name: Redeploy face orchestrator
