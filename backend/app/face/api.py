@@ -5,7 +5,6 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
 from app.db import get_db
 from app.face.models import FaceSubject
 from app.face.models import FaceTemplate
@@ -20,8 +19,7 @@ from app.face.schemas import (
 )
 from app.face.recognition import face_recognition_service
 from app.face.storage import (
-    SupabaseStorageError,
-    SupabaseStorageNotConfigured,
+    LocalStorageError,
     delete_object_reference,
     display_url_for_reference,
     guess_content_type,
@@ -65,7 +63,7 @@ def build_face_object_path(tenant_id: str, subject_id: int, filename: Optional[s
     if not ext.isalnum():
         ext = "jpg"
     safe_tenant = _safe_path_part(tenant_id)
-    return f"{safe_tenant}/subjects/{subject_id}/faces/{uuid.uuid4()}.{ext}"
+    return f"face/{safe_tenant}/subjects/{subject_id}/faces/{uuid.uuid4()}.{ext}"
 
 
 async def save_template_photo(
@@ -75,10 +73,9 @@ async def save_template_photo(
     filename: Optional[str],
     content_type: Optional[str],
 ):
-    settings = get_settings()
     object_path = build_face_object_path(tenant_id, subject_id, filename)
     return await upload_object(
-        settings.SUPABASE_STORAGE_FACE_BUCKET,
+        "local",
         object_path,
         image_data,
         content_type or guess_content_type(filename),
@@ -91,15 +88,10 @@ async def template_response(template: FaceTemplate) -> FaceTemplateResponse:
     )
 
 
-def storage_http_error(operation: str, error: SupabaseStorageError) -> HTTPException:
-    if isinstance(error, SupabaseStorageNotConfigured):
-        return HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Supabase Storage belum dikonfigurasi untuk face service",
-        )
+def storage_http_error(operation: str, error: LocalStorageError) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_502_BAD_GATEWAY,
-        detail=f"Gagal {operation} foto wajah di Supabase Storage",
+        detail=f"Gagal {operation} foto wajah di storage VPS",
     )
 
 
@@ -199,7 +191,7 @@ async def upload_subject_face(
             file.filename,
             file.content_type,
         )
-    except SupabaseStorageError as error:
+    except LocalStorageError as error:
         raise storage_http_error("menyimpan", error)
 
     template = FaceTemplate(
@@ -234,7 +226,7 @@ async def list_subject_faces(
     ).order_by(FaceTemplate.created_at.desc()).all()
     try:
         return [await template_response(template) for template in templates]
-    except SupabaseStorageError as error:
+    except LocalStorageError as error:
         raise storage_http_error("membaca", error)
 
 
@@ -252,7 +244,7 @@ async def delete_face_template(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Foto tidak ditemukan")
     try:
         await delete_object_reference(template.photo_url)
-    except SupabaseStorageError as error:
+    except LocalStorageError as error:
         raise storage_http_error("menghapus", error)
     db.delete(template)
     db.commit()

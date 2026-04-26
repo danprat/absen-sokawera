@@ -44,7 +44,6 @@ jobs:
             FACE_SERVICE_API_KEY
             SUPABASE_ACCESS_TOKEN
             SUPABASE_PROJECT_ID
-            SUPABASE_SERVICE_ROLE_KEY
             DATABASE_URL
             SECRET_KEY
           )
@@ -215,8 +214,12 @@ jobs:
           write_env_line FACE_SERVICE_REQUIRE_API_KEY True "$env_file"
           write_env_line FACE_SERVICE_API_KEY "$FACE_SERVICE_API_KEY" "$env_file"
           write_env_line FACE_SERVICE_URL "$FACE_SERVICE_URL" "$env_file"
-          write_env_line SUPABASE_URL "$SUPABASE_URL" "$env_file"
-          write_env_line SUPABASE_SERVICE_ROLE_KEY "$SUPABASE_SERVICE_ROLE_KEY" "$env_file"
+          write_env_line FACE_UPLOAD_ROOT uploads "$env_file"
+          write_env_line FACE_UPLOAD_PUBLIC_PREFIX /uploads "$env_file"
+
+          mkdir -p "$DEPLOY_PATH/uploads/face"
+          rm -rf "$release_dir/backend/uploads"
+          ln -s "$DEPLOY_PATH/uploads" "$release_dir/backend/uploads"
 
           cd "$release_dir/backend"
           python_bin="python${PYTHON_VERSION}"
@@ -253,9 +256,14 @@ jobs:
             echo "Skipping face-core database copy; no distinct legacy source database URL found."
           fi
 
-          if [ -d "$DEPLOY_PATH/current/backend/uploads" ]; then
-            PYTHONPATH=. ./venv/bin/python scripts/migrate_face_uploads_to_supabase.py \
-              --legacy-root "$DEPLOY_PATH/current/backend"
+          if [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+            SUPABASE_URL="$SUPABASE_URL" \
+            SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY" \
+            PYTHONPATH=. ./venv/bin/python scripts/migrate_supabase_face_photos_to_local.py \
+              --supabase-url "$SUPABASE_URL" \
+              --service-role-key "$SUPABASE_SERVICE_ROLE_KEY"
+          else
+            echo "Skipping Supabase-to-local face photo migration; Supabase credentials are not configured."
           fi
 
           find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
@@ -325,6 +333,12 @@ jobs:
 
           if [ "$service_ready" = "true" ]; then
             cd "$DEPLOY_PATH"
+            if grep -Eq '^(SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY)=' current/backend/.env; then
+              echo "Supabase Storage credentials must not be written to the face service runtime .env." >&2
+              exit 1
+            fi
+            echo "Runtime .env is clean of Supabase Storage credentials."
+
             echo "VPS cleanup inventory:"
             find . -maxdepth 2 -mindepth 1 -printf '%M %s %p\n' | sort || true
 

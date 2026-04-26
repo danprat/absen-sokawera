@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     FACE_SERVICE_REQUIRE_API_KEY: bool = False
     FACE_SERVICE_JWT_AUDIENCE: str = "face-service"
     FACE_SERVICE_TIMEOUT_SECONDS: float = 10.0
+    FACE_UPLOAD_ROOT: str = "uploads"
+    FACE_UPLOAD_PUBLIC_PREFIX: str = "/uploads"
 
     # Supabase
     SUPABASE_URL: Optional[str] = None

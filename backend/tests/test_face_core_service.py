@@ -19,6 +19,9 @@ from app.face.api import (
 from app.face.schemas import FaceSubjectCreate
 from app.face.recognition import face_recognition_service
 from app.face.storage import StoredObject
+from app.face.storage import delete_object_reference
+from app.face.storage import display_url_for_reference
+from app.face.storage import upload_object
 from app.face.auth import hash_face_app_key
 
 
@@ -80,8 +83,8 @@ def test_upload_subject_face_stores_template_under_subject_tenant(monkeypatch):
         lambda image_data, tenant_id, subject_id, filename, content_type: asyncio.sleep(
             0,
             result=StoredObject(
-                reference=f"supabase://face-originals/{tenant_id}/subjects/{subject_id}/faces/test.jpg",
-                signed_url="https://signed.example/test.jpg",
+                reference=f"/uploads/face/{tenant_id}/subjects/{subject_id}/faces/test.jpg",
+                signed_url=f"/uploads/face/{tenant_id}/subjects/{subject_id}/faces/test.jpg",
             ),
         ),
     )
@@ -92,10 +95,10 @@ def test_upload_subject_face_stores_template_under_subject_tenant(monkeypatch):
     template = db.query(FaceTemplate).filter(FaceTemplate.id == response.id).first()
 
     assert response.subject_id == subject.id
-    assert response.photo_url == "https://signed.example/test.jpg"
+    assert response.photo_url == f"/uploads/face/tenant-a/subjects/{subject.id}/faces/test.jpg"
     assert template.tenant_id == "tenant-a"
     assert template.subject_id == subject.id
-    assert template.photo_url == f"supabase://face-originals/tenant-a/subjects/{subject.id}/faces/test.jpg"
+    assert template.photo_url == f"/uploads/face/tenant-a/subjects/{subject.id}/faces/test.jpg"
     assert refresh_events == ["tenant-a"]
 
 
@@ -125,7 +128,7 @@ def test_tenant_cannot_list_or_delete_other_tenant_faces():
         raise AssertionError("Tenant A should not delete tenant B face templates")
 
 
-def test_list_subject_faces_returns_signed_urls(monkeypatch):
+def test_list_subject_faces_returns_local_urls():
     db = make_session()
     subject = FaceSubject(tenant_id="tenant-a", external_subject_id="EMP-1", display_name="Ani")
     db.add(subject)
@@ -135,19 +138,14 @@ def test_list_subject_faces_returns_signed_urls(monkeypatch):
         tenant_id="tenant-a",
         subject_id=subject.id,
         embedding=b"1" * 512,
-        photo_url="supabase://face-originals/tenant-a/subjects/1/faces/test.jpg",
+        photo_url="/uploads/face/tenant-a/subjects/1/faces/test.jpg",
     )
     db.add(template)
     db.commit()
     db.refresh(template)
-    monkeypatch.setattr(
-        "app.face.api.display_url_for_reference",
-        lambda reference: asyncio.sleep(0, result=f"https://signed.example/{reference.rsplit('/', 1)[-1]}"),
-    )
-
     result = asyncio.run(list_subject_faces(subject_id=subject.id, db=db, client=context("tenant-a")))
 
-    assert result[0].photo_url == "https://signed.example/test.jpg"
+    assert result[0].photo_url == "/uploads/face/tenant-a/subjects/1/faces/test.jpg"
 
 
 def test_delete_face_template_removes_storage_object(monkeypatch):
@@ -160,7 +158,7 @@ def test_delete_face_template_removes_storage_object(monkeypatch):
         tenant_id="tenant-a",
         subject_id=subject.id,
         embedding=b"1" * 512,
-        photo_url="supabase://face-originals/tenant-a/subjects/1/faces/test.jpg",
+        photo_url="/uploads/face/tenant-a/subjects/1/faces/test.jpg",
     )
     db.add(template)
     db.commit()
@@ -174,8 +172,24 @@ def test_delete_face_template_removes_storage_object(monkeypatch):
 
     asyncio.run(delete_face_template(face_id=template.id, db=db, client=context("tenant-a")))
 
-    assert deleted == ["supabase://face-originals/tenant-a/subjects/1/faces/test.jpg"]
+    assert deleted == ["/uploads/face/tenant-a/subjects/1/faces/test.jpg"]
     assert db.query(FaceTemplate).filter(FaceTemplate.id == template.id).first() is None
+
+
+def test_local_storage_upload_display_and_delete(monkeypatch, tmp_path):
+    monkeypatch.setattr("app.face.storage.upload_root", lambda: tmp_path)
+    monkeypatch.setattr("app.face.storage.public_upload_prefix", lambda: "/uploads")
+
+    stored = asyncio.run(upload_object("local", "face/tenant-a/subjects/1/faces/test.jpg", b"image", "image/jpeg"))
+
+    assert stored.reference == "/uploads/face/tenant-a/subjects/1/faces/test.jpg"
+    assert stored.signed_url == stored.reference
+    assert (tmp_path / "face/tenant-a/subjects/1/faces/test.jpg").read_bytes() == b"image"
+    assert asyncio.run(display_url_for_reference(stored.reference)) == stored.reference
+
+    asyncio.run(delete_object_reference(stored.reference))
+
+    assert not (tmp_path / "face/tenant-a/subjects/1/faces/test.jpg").exists()
 
 
 def test_recognize_subject_returns_best_match_from_same_tenant(monkeypatch):

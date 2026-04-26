@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from pathlib import Path
 
 from app.config import get_settings
 from app.db import Base, engine
@@ -36,6 +38,13 @@ app.add_middleware(
 API_PREFIX = "/api/v1"
 
 app.include_router(face_api.router, prefix=API_PREFIX)
+
+Path(settings_config.FACE_UPLOAD_ROOT).mkdir(parents=True, exist_ok=True)
+app.mount(
+    settings_config.FACE_UPLOAD_PUBLIC_PREFIX,
+    StaticFiles(directory=settings_config.FACE_UPLOAD_ROOT),
+    name="uploads",
+)
 
 
 @app.on_event("startup")
