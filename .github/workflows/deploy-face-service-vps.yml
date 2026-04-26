@@ -100,7 +100,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          scp -i ~/.ssh/deploy_key -P "${SSH_PORT}" -o StrictHostKeyChecking=accept-new \
+          timeout 120s scp -i ~/.ssh/deploy_key -P "${SSH_PORT}" \
+            -o BatchMode=yes \
+            -o ConnectTimeout=30 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=2 \
+            -o StrictHostKeyChecking=accept-new \
             backend-release.tar.gz backend-env \
             "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.VPS_DEPLOY_PATH }}/"
         env:
@@ -110,7 +115,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/deploy_key -p "${SSH_PORT}" -o StrictHostKeyChecking=accept-new \
+          ssh -i ~/.ssh/deploy_key -p "${SSH_PORT}" \
+            -o BatchMode=yes \
+            -o ConnectTimeout=30 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=6 \
+            -o StrictHostKeyChecking=accept-new \
             "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
             "DEPLOY_PATH='${{ secrets.VPS_DEPLOY_PATH }}' APP_PORT='${{ secrets.APP_PORT }}' PYTHON_VERSION='${{ secrets.PYTHON_VERSION }}' bash -s" <<'REMOTE'
           set -euo pipefail
