@@ -179,8 +179,80 @@ function todayIso() {
   return jakartaDateParts().isoDate;
 }
 
+function jakartaNowParts(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+    weekday: "short",
+  }).formatToParts(now);
+  const part = (type: string) => parts.find((item) => item.type === type)?.value || "";
+  const dayMap: Record<string, number> = {
+    Mon: 0,
+    Tue: 1,
+    Wed: 2,
+    Thu: 3,
+    Fri: 4,
+    Sat: 5,
+    Sun: 6,
+  };
+
+  return {
+    isoDate: `${part("year")}-${part("month")}-${part("day")}`,
+    dateTime: `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}:${part("second")}`,
+    dayOfWeek: dayMap[part("weekday")] ?? 0,
+    minutes: Number(part("hour")) * 60 + Number(part("minute")),
+  };
+}
+
 function timeHHMM(value: string | null | undefined) {
   return value ? value.slice(0, 5) : value;
+}
+
+function dateTimeHHMM(value: unknown) {
+  const text = typeof value === "string" ? value : "";
+  return text.includes("T") ? text.split("T")[1].slice(0, 5) : text.slice(11, 16) || timeHHMM(text);
+}
+
+function timeToMinutes(value: string | null | undefined, fallback: string) {
+  const [hour, minute] = (value || fallback).slice(0, 5).split(":").map((part) => Number(part));
+  return hour * 60 + minute;
+}
+
+function attendanceStatus(attendance: Record<string, unknown> | null | undefined) {
+  if (!attendance?.check_in_at) return "belum_absen";
+  if (!attendance.check_out_at) return "sudah_check_in";
+  return "sudah_lengkap";
+}
+
+function attendanceResponse(
+  employee: Record<string, unknown>,
+  attendance: Record<string, unknown>,
+  message: string,
+  confidence: number,
+) {
+  return json({
+    employee: {
+      id: employee.id,
+      name: employee.name,
+      position: employee.position,
+      photo: employee.photo_url ?? null,
+    },
+    attendance: {
+      id: attendance.id,
+      status: String(attendance.status || "").toLowerCase(),
+      check_in_at: attendance.check_in_at ?? null,
+      check_out_at: attendance.check_out_at ?? null,
+    },
+    message,
+    confidence: Math.round(confidence * 10) / 10,
+    attendance_status: attendanceStatus(attendance),
+  });
 }
 
 function currentYearJakarta() {
@@ -371,11 +443,25 @@ async function listEmployees(url: URL) {
   if (error) return bad(error.message, 500);
 
   const ids = (data || []).map((employee) => employee.id);
-  const { data: faces } = ids.length
-    ? await supabase.from("face_embeddings").select("employee_id").in("employee_id", ids)
+  const { data: subjects } = ids.length
+    ? await supabase
+      .from("face_subjects")
+      .select("id, external_subject_id")
+      .eq("tenant_id", "default")
+      .in("external_subject_id", ids.map(String))
+    : { data: [] };
+  const subjectEmployeeIds = new Map<number, number>();
+  (subjects || []).forEach((subject) => {
+    subjectEmployeeIds.set(subject.id, Number(subject.external_subject_id));
+  });
+  const { data: faces } = subjectEmployeeIds.size
+    ? await supabase.from("face_templates").select("subject_id").in("subject_id", Array.from(subjectEmployeeIds.keys()))
     : { data: [] };
   const faceCounts = new Map<number, number>();
-  (faces || []).forEach((face) => faceCounts.set(face.employee_id, (faceCounts.get(face.employee_id) || 0) + 1));
+  (faces || []).forEach((face) => {
+    const employeeId = subjectEmployeeIds.get(face.subject_id);
+    if (employeeId) faceCounts.set(employeeId, (faceCounts.get(employeeId) || 0) + 1);
+  });
 
   return json({
     items: (data || []).map((employee) => ({ ...employee, face_count: faceCounts.get(employee.id) || 0 })),
@@ -388,7 +474,15 @@ async function listEmployees(url: URL) {
 async function getEmployee(id: number) {
   const { data, error } = await supabase.from("employees").select("*").eq("id", id).single();
   if (error) return bad("Pegawai tidak ditemukan", 404);
-  const { count } = await supabase.from("face_embeddings").select("id", { count: "exact", head: true }).eq("employee_id", id);
+  const { data: subject } = await supabase
+    .from("face_subjects")
+    .select("id")
+    .eq("tenant_id", "default")
+    .eq("external_subject_id", String(id))
+    .maybeSingle();
+  const { count } = subject?.id
+    ? await supabase.from("face_templates").select("id", { count: "exact", head: true }).eq("subject_id", subject.id)
+    : { count: 0 };
   return json({ ...data, face_count: count || 0 });
 }
 
@@ -465,6 +559,105 @@ async function correctAttendance(req: Request, id: number) {
   if (error) return bad(error.message, 400);
   await logAudit("CORRECT", "ATTENDANCE", `Koreksi absensi ${updated.employees?.name || id}`, admin, id, payload);
   return json({ ...updated, status: String(updated.status || "").toLowerCase(), employee_name: updated.employees?.name || "" });
+}
+
+async function confirmAttendance(req: Request) {
+  const data = await bodyJson(req);
+  const employeeId = Number(data.employee_id);
+  const confidence = Number(data.confidence);
+  if (!Number.isFinite(employeeId) || !Number.isFinite(confidence)) {
+    return bad("employee_id dan confidence wajib diisi", 400);
+  }
+
+  const { data: employee, error: employeeError } = await supabase
+    .from("employees")
+    .select("id, name, position, photo_url, is_active")
+    .eq("id", employeeId)
+    .eq("is_active", true)
+    .single();
+  if (employeeError || !employee) return bad("Employee tidak ditemukan", 404);
+
+  const now = jakartaNowParts();
+  const { data: schedule } = await supabase
+    .from("daily_work_schedules")
+    .select("*")
+    .eq("day_of_week", now.dayOfWeek)
+    .maybeSingle();
+  const isWorkday = schedule ? Boolean(schedule.is_workday) : now.dayOfWeek < 5;
+  if (!isWorkday) return bad("Hari ini bukan hari kerja", 400);
+
+  const { data: holiday } = await supabase
+    .from("holidays")
+    .select("id, is_excluded")
+    .eq("date", now.isoDate)
+    .maybeSingle();
+  if (holiday && !holiday.is_excluded) return bad("Hari ini adalah hari libur", 400);
+
+  const { data: settings } = await supabase.from("work_settings").select("late_threshold_minutes").order("id").limit(1).maybeSingle();
+  const checkInStart = timeToMinutes(schedule?.check_in_start, "07:00");
+  const checkInEnd = timeToMinutes(schedule?.check_in_end, "08:00");
+  const checkOutStart = timeToMinutes(schedule?.check_out_start, "16:00");
+  const checkOutEnd = 23 * 60 + 59;
+
+  const { data: existingAttendance } = await supabase
+    .from("attendance_logs")
+    .select("*")
+    .eq("employee_id", employeeId)
+    .eq("date", now.isoDate)
+    .maybeSingle();
+
+  const hasCheckedIn = Boolean(existingAttendance?.check_in_at);
+  const isCheckInWindow = !hasCheckedIn && now.minutes >= checkInStart && now.minutes < checkOutStart;
+  const isCheckOutWindow = hasCheckedIn && now.minutes >= checkOutStart && now.minutes <= checkOutEnd;
+  if (!isCheckInWindow && !isCheckOutWindow) {
+    return bad(`Di luar jam absensi (${timeHHMM(schedule?.check_in_start || "07:00")}-23:59)`, 400);
+  }
+
+  if (isCheckInWindow) {
+    const lateThreshold = checkInEnd + Number(settings?.late_threshold_minutes ?? 15);
+    const status = now.minutes <= lateThreshold ? "HADIR" : "TERLAMBAT";
+    const payload = {
+      employee_id: employeeId,
+      date: now.isoDate,
+      check_in_at: now.dateTime,
+      status,
+      confidence_score: confidence / 100,
+      updated_at: now.dateTime,
+    };
+
+    const result = existingAttendance
+      ? await supabase.from("attendance_logs").update(payload).eq("id", existingAttendance.id).select("*").single()
+      : await supabase.from("attendance_logs").insert(payload).select("*").single();
+
+    if (result.error || !result.data) return bad(result.error?.message || "Gagal menyimpan absensi", 400);
+    return attendanceResponse(
+      employee,
+      result.data,
+      status === "TERLAMBAT" ? `Selamat datang, ${employee.name} (Terlambat)` : `Selamat datang, ${employee.name}`,
+      confidence,
+    );
+  }
+
+  if (!existingAttendance?.check_in_at) return bad("Belum absen masuk hari ini", 400);
+  if (existingAttendance.check_out_at) {
+    return attendanceResponse(employee, existingAttendance, `Sudah absen pulang pukul ${dateTimeHHMM(existingAttendance.check_out_at)}`, confidence);
+  }
+
+  const checkInAt = new Date(String(existingAttendance.check_in_at)).getTime();
+  const nowAt = new Date(now.dateTime).getTime();
+  if (Number.isFinite(checkInAt) && Number.isFinite(nowAt) && nowAt - checkInAt < 180_000) {
+    const minutesLeft = 3 - Math.floor((nowAt - checkInAt) / 60_000);
+    return bad(`Anda baru saja check-in. Harap tunggu ${minutesLeft} menit lagi untuk check-out.`, 400);
+  }
+
+  const { data: updated, error } = await supabase
+    .from("attendance_logs")
+    .update({ check_out_at: now.dateTime, updated_at: now.dateTime })
+    .eq("id", existingAttendance.id)
+    .select("*")
+    .single();
+  if (error || !updated) return bad(error?.message || "Gagal menyimpan absensi pulang", 400);
+  return attendanceResponse(employee, updated, `Sampai jumpa besok, ${employee.name}`, confidence);
 }
 
 async function monthlyReport(url: URL) {
@@ -1089,7 +1282,8 @@ export async function handleAppRequest(req: Request, allowedPrefixes?: string[],
   if (employeeMatch && method === "DELETE") return deleteEmployee(req, Number(employeeMatch[1]));
 
   if (path === "/api/v1/attendance/today" && method === "GET") return json(await attendanceToday(false));
-  if (path === "/api/v1/attendance/recognize" || path === "/api/v1/attendance/confirm") {
+  if (path === "/api/v1/attendance/confirm" && method === "POST") return confirmAttendance(req);
+  if (path === "/api/v1/attendance/recognize") {
     return bad("Face recognition belum dimigrasi ke Supabase-only runtime", 501);
   }
   if (path === "/api/v1/admin/attendance" && method === "GET") {

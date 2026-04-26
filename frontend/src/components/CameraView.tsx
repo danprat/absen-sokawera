@@ -206,8 +206,8 @@ export function CameraView({ onCapture, isPaused = false }: CameraViewProps) {
     } catch (error) {
       console.error('Face recognition error:', error);
       
-      const axiosError = error as { response?: { data?: { detail?: string } } };
-      const errorMessage = axiosError.response?.data?.detail || 'Wajah tidak dikenali atau terjadi kesalahan';
+      const axiosError = error as { response?: { data?: { detail?: string } }; message?: string };
+      const errorMessage = axiosError.response?.data?.detail || axiosError.message || 'Wajah tidak dikenali atau terjadi kesalahan';
       
       toast.error('Pengenalan Gagal', {
         description: errorMessage,

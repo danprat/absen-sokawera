@@ -17,15 +17,15 @@ test("builds face operation URLs relative to the orchestrator", () => {
   assert.equal(
     createFaceOperationUrl(
       "http://127.0.0.1:54321/functions/v1/face-orchestrator/",
-      "/attendance/recognize",
+      "/recognize",
     ),
-    "http://127.0.0.1:54321/functions/v1/face-orchestrator/attendance/recognize",
+    "http://127.0.0.1:54321/functions/v1/face-orchestrator/recognize",
   );
 });
 
-test("keeps the legacy API v1 URL shape when backend is used as fallback", () => {
+test("builds agnostic subject and face URLs", () => {
   assert.equal(
-    createFaceOperationUrl("http://127.0.0.1:8000/api/v1", "employees/7/face"),
-    "http://127.0.0.1:8000/api/v1/employees/7/face",
+    createFaceOperationUrl("http://127.0.0.1:54321/functions/v1/face-orchestrator", "subjects/7/faces"),
+    "http://127.0.0.1:54321/functions/v1/face-orchestrator/subjects/7/faces",
   );
 });

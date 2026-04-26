@@ -177,6 +177,30 @@ export interface BackendRecognizeResponse {
   attendance_status?: 'belum_absen' | 'sudah_check_in' | 'sudah_lengkap';
 }
 
+interface FaceSubjectResponse {
+  id: number;
+  external_subject_id: string;
+  display_name: string;
+  metadata?: Record<string, unknown> | null;
+  is_active: boolean;
+}
+
+interface FaceTemplateResponse {
+  id: number;
+  subject_id: number;
+  photo_url: string;
+  is_primary: boolean;
+  created_at: string;
+}
+
+interface FaceRecognizeResponse {
+  matched: boolean;
+  confidence: number;
+  subject: FaceSubjectResponse | null;
+  face_id: number | null;
+  message: string;
+}
+
 // Backend employee list response
 export interface BackendEmployeeListResponse {
   items: BackendEmployee[];
@@ -350,6 +374,43 @@ export interface PublicSettingsResponse {
   today_schedule: PublicTodaySchedule | null;
 }
 
+const faceSubjectExternalId = (employeeId: number) => String(employeeId);
+
+const findFaceSubject = async (employeeId: number): Promise<FaceSubjectResponse | null> => {
+  const response = await apiClient.get<FaceSubjectResponse[]>(
+    createFaceOperationUrl(FACE_ORCHESTRATOR_URL, '/subjects'),
+    { params: { external_subject_id: faceSubjectExternalId(employeeId) } }
+  );
+  return response.data[0] || null;
+};
+
+const ensureFaceSubject = async (employee: BackendEmployee): Promise<FaceSubjectResponse> => {
+  const existing = await findFaceSubject(employee.id);
+  if (existing) return existing;
+
+  const response = await apiClient.post<FaceSubjectResponse>(
+    createFaceOperationUrl(FACE_ORCHESTRATOR_URL, '/subjects'),
+    {
+      external_subject_id: faceSubjectExternalId(employee.id),
+      display_name: employee.name,
+      metadata: {
+        app: 'monika',
+        employee_id: employee.id,
+        position: employee.position,
+      },
+    }
+  );
+  return response.data;
+};
+
+const getAttendanceStatusForEmployee = async (employeeId: number): Promise<'belum_absen' | 'sudah_check_in' | 'sudah_lengkap'> => {
+  const today = await api.attendance.today();
+  const item = today.items.find((attendance) => attendance.employee_id === employeeId);
+  if (!item?.check_in_at) return 'belum_absen';
+  if (!item.check_out_at) return 'sudah_check_in';
+  return 'sudah_lengkap';
+};
+
 export const api = {
   auth: {
     login: async (credentials: LoginRequest): Promise<LoginResponse> => {
@@ -412,18 +473,29 @@ export const api = {
     // Face enrollment
     face: {
       list: async (employeeId: number): Promise<BackendFaceEmbedding[]> => {
-      const response = await apiClient.get<BackendFaceEmbedding[]>(
-        createFaceOperationUrl(FACE_ORCHESTRATOR_URL, `/employees/${employeeId}/face`)
-      );
-        return response.data;
+        const subject = await findFaceSubject(employeeId);
+        if (!subject) return [];
+
+        const response = await apiClient.get<FaceTemplateResponse[]>(
+          createFaceOperationUrl(FACE_ORCHESTRATOR_URL, `/subjects/${subject.id}/faces`)
+        );
+        return response.data.map((face) => ({
+          id: face.id,
+          employee_id: employeeId,
+          photo_url: face.photo_url,
+          is_primary: face.is_primary,
+          created_at: face.created_at,
+        }));
       },
 
       upload: async (employeeId: number, file: File): Promise<BackendFaceUploadResponse> => {
+        const employee = await api.employees.get(employeeId);
+        const subject = await ensureFaceSubject(employee);
         const formData = new FormData();
         formData.append('file', file);
 
         const response = await apiClient.post<BackendFaceUploadResponse>(
-          createFaceOperationUrl(FACE_ORCHESTRATOR_URL, `/employees/${employeeId}/face`),
+          createFaceOperationUrl(FACE_ORCHESTRATOR_URL, `/subjects/${subject.id}/faces`),
           formData,
           { headers: { 'Content-Type': 'multipart/form-data' } }
         );
@@ -431,7 +503,8 @@ export const api = {
       },
 
       delete: async (employeeId: number, faceId: number): Promise<void> => {
-        await apiClient.delete(createFaceOperationUrl(FACE_ORCHESTRATOR_URL, `/employees/${employeeId}/face/${faceId}`));
+        void employeeId;
+        await apiClient.delete(createFaceOperationUrl(FACE_ORCHESTRATOR_URL, `/faces/${faceId}`));
       },
     },
   },
@@ -455,23 +528,44 @@ export const api = {
         throw new Error('Either imageFile or imageBase64 must be provided');
       }
 
-      const response = await apiClient.post<BackendRecognizeResponse>(
-        createFaceOperationUrl(FACE_ORCHESTRATOR_URL, '/attendance/recognize'),
+      const response = await apiClient.post<FaceRecognizeResponse>(
+        createFaceOperationUrl(FACE_ORCHESTRATOR_URL, '/recognize'),
         formData,
         { headers: { 'Content-Type': 'multipart/form-data' } }
       );
-      return response.data;
+
+      if (!response.data.matched || !response.data.subject) {
+        throw new Error(response.data.message || 'Wajah tidak dikenali');
+      }
+
+      const employeeId = Number(response.data.subject.external_subject_id);
+      if (!Number.isFinite(employeeId)) {
+        throw new Error('Subject wajah tidak terhubung ke pegawai Monika');
+      }
+
+      const [employee, attendanceStatus] = await Promise.all([
+        api.employees.get(employeeId),
+        getAttendanceStatusForEmployee(employeeId),
+      ]);
+
+      return {
+        employee: {
+          id: employee.id,
+          name: employee.name,
+          position: employee.position,
+          photo: employee.photo_url,
+        },
+        attendance: null,
+        message: response.data.message,
+        confidence: response.data.confidence,
+        attendance_status: attendanceStatus,
+      };
     },
 
     confirm: async (employeeId: number, confidence: number): Promise<BackendRecognizeResponse> => {
-      const formData = new FormData();
-      formData.append('employee_id', employeeId.toString());
-      formData.append('confidence', confidence.toString());
-
       const response = await apiClient.post<BackendRecognizeResponse>(
-        createFaceOperationUrl(FACE_ORCHESTRATOR_URL, '/attendance/confirm'),
-        formData,
-        { headers: { 'Content-Type': 'multipart/form-data' } }
+        '/api/v1/attendance/confirm',
+        { employee_id: employeeId, confidence }
       );
       return response.data;
     },
