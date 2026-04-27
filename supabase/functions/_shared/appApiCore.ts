@@ -331,6 +331,32 @@ function attendanceResponse(
   });
 }
 
+function attendancePreviewResponse(
+  employee: Record<string, unknown>,
+  attendance: Record<string, unknown> | null,
+  confidence: number,
+) {
+  return json({
+    employee: {
+      id: employee.id,
+      name: employee.name,
+      position: employee.position,
+      photo: employee.photo_url ?? null,
+    },
+    attendance: attendance
+      ? {
+          id: attendance.id,
+          status: String(attendance.status || "").toLowerCase(),
+          check_in_at: attendance.check_in_at ?? null,
+          check_out_at: attendance.check_out_at ?? null,
+        }
+      : null,
+    message: "Wajah dikenali. Silakan konfirmasi absensi.",
+    confidence: Math.round(confidence * 10) / 10,
+    attendance_status: attendanceStatus(attendance),
+  });
+}
+
 function currentYearJakarta() {
   return Number(
     new Intl.DateTimeFormat("en-CA", {
@@ -459,6 +485,65 @@ async function publicSettings() {
         }
       : null,
   };
+}
+
+function scheduleForAttendanceGate(
+  schedule: Record<string, unknown> | null | undefined,
+  isWorkday: boolean,
+) {
+  return {
+    is_workday: isWorkday,
+    check_in_start: timeHHMM(String(schedule?.check_in_start || "07:00")),
+    check_in_end: timeHHMM(String(schedule?.check_in_end || "08:00")),
+    check_out_start: timeHHMM(String(schedule?.check_out_start || "16:00")),
+  };
+}
+
+async function attendanceGate() {
+  const now = jakartaNowParts();
+  const { data: schedule } = await supabase
+    .from("daily_work_schedules")
+    .select("is_workday, check_in_start, check_in_end, check_out_start")
+    .eq("day_of_week", now.dayOfWeek)
+    .maybeSingle();
+  const isWorkday = schedule ? Boolean(schedule.is_workday) : now.dayOfWeek < 5;
+
+  const { data: holiday } = await supabase
+    .from("holidays")
+    .select("id, date, name, is_excluded")
+    .eq("date", now.isoDate)
+    .maybeSingle();
+  const activeHoliday = holiday && !holiday.is_excluded ? holiday : null;
+
+  let canScan = true;
+  let reason: "not_workday" | "holiday" | null = null;
+  let message = "Silakan scan wajah";
+
+  if (activeHoliday) {
+    canScan = false;
+    reason = "holiday";
+    message = `Hari ini libur: ${activeHoliday.name || "Hari libur"}`;
+  } else if (!isWorkday) {
+    canScan = false;
+    reason = "not_workday";
+    message = "Hari ini bukan hari kerja";
+  }
+
+  return json({
+    can_scan: canScan,
+    reason,
+    message,
+    date: now.isoDate,
+    schedule: scheduleForAttendanceGate(schedule, isWorkday),
+    holiday: activeHoliday
+      ? {
+          id: activeHoliday.id,
+          date: activeHoliday.date,
+          name: activeHoliday.name,
+          is_excluded: Boolean(activeHoliday.is_excluded),
+        }
+      : null,
+  });
 }
 
 async function attendanceToday(adminShape = false) {
@@ -648,6 +733,38 @@ async function correctAttendance(req: Request, id: number) {
   if (error) return bad(error.message, 400);
   await logAudit("CORRECT", "ATTENDANCE", `Koreksi absensi ${updated.employees?.name || id}`, admin, id, payload);
   return json({ ...updated, status: String(updated.status || "").toLowerCase(), employee_name: updated.employees?.name || "" });
+}
+
+async function attendancePreview(req: Request) {
+  const data = await bodyJson(req);
+  const externalSubjectId = String(data.external_subject_id || "").trim();
+  const confidence = Number(data.confidence);
+  if (!externalSubjectId || !Number.isFinite(confidence)) {
+    return bad("external_subject_id dan confidence wajib diisi", 400);
+  }
+
+  const employeeId = Number(externalSubjectId);
+  if (!Number.isFinite(employeeId)) {
+    return bad("Subject wajah tidak terhubung ke pegawai Monika", 400);
+  }
+
+  const { data: employee, error: employeeError } = await supabase
+    .from("employees")
+    .select("id, name, position, photo_url, is_active")
+    .eq("id", employeeId)
+    .eq("is_active", true)
+    .single();
+  if (employeeError || !employee) return bad("Employee tidak ditemukan", 404);
+
+  const { data: existingAttendance, error: attendanceError } = await supabase
+    .from("attendance_logs")
+    .select("id, status, check_in_at, check_out_at")
+    .eq("employee_id", employeeId)
+    .eq("date", todayIso())
+    .maybeSingle();
+  if (attendanceError) return bad(attendanceError.message, 500);
+
+  return attendancePreviewResponse(employee, existingAttendance || null, confidence);
 }
 
 async function confirmAttendance(req: Request) {
@@ -1413,7 +1530,9 @@ export async function handleAppRequest(req: Request, allowedPrefixes?: string[],
   if (employeeMatch && method === "PATCH") return updateEmployee(req, Number(employeeMatch[1]));
   if (employeeMatch && method === "DELETE") return deleteEmployee(req, Number(employeeMatch[1]));
 
+  if (path === "/api/v1/attendance/gate" && method === "GET") return attendanceGate();
   if (path === "/api/v1/attendance/today" && method === "GET") return json(await attendanceToday(false));
+  if (path === "/api/v1/attendance/preview" && method === "POST") return attendancePreview(req);
   if (path === "/api/v1/attendance/confirm" && method === "POST") return confirmAttendance(req);
   if (path === "/api/v1/admin/dashboard" && method === "GET") return adminDashboard(req);
   if (path === "/api/v1/admin/attendance" && method === "GET") {

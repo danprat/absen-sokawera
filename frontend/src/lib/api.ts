@@ -256,6 +256,7 @@ export interface BackendHoliday {
   name: string;
   is_auto: boolean;
   is_cuti: boolean;
+  is_excluded?: boolean;
   created_at: string;
 }
 
@@ -403,6 +404,15 @@ export interface PublicSettingsResponse {
   today_schedule: PublicTodaySchedule | null;
 }
 
+export interface BackendAttendanceGateResponse {
+  can_scan: boolean;
+  reason: 'not_workday' | 'holiday' | null;
+  message: string;
+  date: string;
+  schedule: PublicTodaySchedule;
+  holiday: Pick<BackendHoliday, 'id' | 'date' | 'name' | 'is_excluded'> | null;
+}
+
 const faceSubjectExternalId = (employeeId: number) => String(employeeId);
 
 const findFaceSubject = async (employeeId: number): Promise<FaceSubjectResponse | null> => {
@@ -430,14 +440,6 @@ const ensureFaceSubject = async (employee: BackendEmployee): Promise<FaceSubject
     }
   );
   return response.data;
-};
-
-const getAttendanceStatusForEmployee = async (employeeId: number): Promise<'belum_absen' | 'sudah_check_in' | 'sudah_lengkap'> => {
-  const today = await api.attendance.today();
-  const item = today.items.find((attendance) => attendance.employee_id === employeeId);
-  if (!item?.check_in_at) return 'belum_absen';
-  if (!item.check_out_at) return 'sudah_check_in';
-  return 'sudah_lengkap';
 };
 
 export const api = {
@@ -546,6 +548,16 @@ export const api = {
   },
 
   attendance: {
+    gate: async (): Promise<BackendAttendanceGateResponse> => {
+      const response = await apiClient.get<BackendAttendanceGateResponse>('/api/v1/attendance/gate');
+      return response.data;
+    },
+
+    preview: async (data: { external_subject_id: string; confidence: number; face_id?: number | null }): Promise<BackendRecognizeResponse> => {
+      const response = await apiClient.post<BackendRecognizeResponse>('/api/v1/attendance/preview', data);
+      return response.data;
+    },
+
     recognize: async (imageFile?: File, imageBase64?: string): Promise<BackendRecognizeResponse> => {
       const formData = new FormData();
 
@@ -572,23 +584,11 @@ export const api = {
         throw new Error('Subject wajah tidak terhubung ke pegawai Monika');
       }
 
-      const [employee, attendanceStatus] = await Promise.all([
-        api.employees.get(employeeId),
-        getAttendanceStatusForEmployee(employeeId),
-      ]);
-
-      return {
-        employee: {
-          id: employee.id,
-          name: employee.name,
-          position: employee.position,
-          photo: employee.photo_url,
-        },
-        attendance: null,
-        message: response.data.message,
+      return api.attendance.preview({
+        external_subject_id: response.data.subject.external_subject_id,
         confidence: response.data.confidence,
-        attendance_status: attendanceStatus,
-      };
+        face_id: response.data.face_id,
+      });
     },
 
     confirm: async (employeeId: number, confidence: number): Promise<BackendRecognizeResponse> => {

@@ -1,13 +1,13 @@
-import { useState, useEffect } from 'react';
-import { AnimatePresence } from 'framer-motion';
+import { useCallback, useState, useEffect } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Loader2, RefreshCw } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { CameraView } from '@/components/CameraView';
 import { AttendanceResult } from '@/components/AttendanceResult';
 import { Employee } from '@/types/attendance';
 import { useSettings } from '@/hooks/useSettings';
-import { api } from '@/lib/api';
+import { api, type BackendAttendanceGateResponse } from '@/lib/api';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 
@@ -15,6 +15,9 @@ const Absen = () => {
   const navigate = useNavigate();
   const { settings } = useSettings();
   const [lateThreshold, setLateThreshold] = useState('08:15');
+  const [attendanceGate, setAttendanceGate] = useState<BackendAttendanceGateResponse | null>(null);
+  const [gateLoading, setGateLoading] = useState(true);
+  const [gateError, setGateError] = useState<string | null>(null);
   const [capturedEmployee, setCapturedEmployee] = useState<{
     employee: Employee;
     confidence: number;
@@ -29,20 +32,27 @@ const Absen = () => {
     };
   }, []);
 
-  // Fetch late threshold from schedule
-  useEffect(() => {
-    const fetchSchedule = async () => {
-      try {
-        const data = await api.public.settings();
-        if (data.today_schedule?.check_in_end) {
-          setLateThreshold(data.today_schedule.check_in_end);
-        }
-      } catch {
-        // Use default
-      }
-    };
-    fetchSchedule();
+  const loadAttendanceGate = useCallback(async () => {
+    setGateLoading(true);
+    setGateError(null);
+
+    try {
+      const data = await api.attendance.gate();
+      setAttendanceGate(data);
+      setLateThreshold(data.schedule?.check_in_end || '08:15');
+    } catch (error) {
+      console.error('Failed to load attendance gate:', error);
+      const axiosError = error as { response?: { data?: { detail?: string } }; message?: string };
+      setGateError(axiosError.response?.data?.detail || axiosError.message || 'Gagal mengecek jadwal absensi');
+      setAttendanceGate(null);
+    } finally {
+      setGateLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadAttendanceGate();
+  }, [loadAttendanceGate]);
 
   const isLate = () => {
     const now = new Date();
@@ -103,7 +113,54 @@ const Absen = () => {
       
       <main className="flex-1 flex flex-col overflow-hidden relative">
         <AnimatePresence mode="wait">
-          <CameraView key="camera" onCapture={handleCapture} isPaused={!!capturedEmployee} />
+          {gateLoading ? (
+            <motion.div
+              key="gate-loading"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex-1 flex flex-col items-center justify-center gap-3 bg-background px-6 text-center"
+            >
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="text-base font-medium text-foreground">Mengecek jadwal absensi</p>
+            </motion.div>
+          ) : gateError ? (
+            <motion.div
+              key="gate-error"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex-1 flex flex-col items-center justify-center gap-4 bg-background px-6 text-center"
+            >
+              <AlertCircle className="h-10 w-10 text-destructive" />
+              <div className="max-w-sm space-y-1">
+                <p className="text-lg font-semibold text-foreground">Jadwal belum bisa dicek</p>
+                <p className="text-sm text-muted-foreground">{gateError}</p>
+              </div>
+              <Button onClick={loadAttendanceGate} className="gap-2">
+                <RefreshCw className="h-4 w-4" />
+                Coba Lagi
+              </Button>
+            </motion.div>
+          ) : attendanceGate?.can_scan ? (
+            <CameraView key="camera" onCapture={handleCapture} isPaused={!!capturedEmployee} />
+          ) : (
+            <motion.div
+              key="gate-blocked"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex-1 flex flex-col items-center justify-center gap-3 bg-background px-6 text-center"
+            >
+              <AlertCircle className="h-10 w-10 text-muted-foreground" />
+              <div className="max-w-sm space-y-1">
+                <p className="text-lg font-semibold text-foreground">Absensi belum tersedia</p>
+                <p className="text-sm text-muted-foreground">
+                  {attendanceGate?.message || 'Hari ini tidak tersedia untuk absensi wajah'}
+                </p>
+              </div>
+            </motion.div>
+          )}
         </AnimatePresence>
 
         {/* Back button */}

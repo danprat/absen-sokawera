@@ -10,8 +10,7 @@ import {
   updateStabilityTracker,
   drawFaceOverlay,
   isWebAssemblySupported,
-  type FaceStability,
-  type BoundingBox
+  type FaceStability
 } from '@/lib/faceDetection';
 import type { FaceDetector } from '@mediapipe/tasks-vision';
 
@@ -22,9 +21,10 @@ interface CameraViewProps {
 
 // Optimized constants for faster detection
 const AUTO_CAPTURE_DELAY = 1000;  // Reduced from 2500ms to 1 second
-const FACE_DETECTION_INTERVAL = 33;  // ~30 FPS, reduced from 500ms
+const FACE_DETECTION_INTERVAL = 100;
+const CAPTURE_MAX_WIDTH = 640;
+const CAPTURE_JPEG_QUALITY = 0.72;
 const MIN_FACE_CONFIDENCE = 0.5;
-const STABILITY_FRAMES_REQUIRED = 5;
 
 export function CameraView({ onCapture, isPaused = false }: CameraViewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -38,17 +38,19 @@ export function CameraView({ onCapture, isPaused = false }: CameraViewProps) {
   const [countdown, setCountdown] = useState<number | null>(null);
   const faceDetectedTimeRef = useRef<number | null>(null);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const captureInFlightRef = useRef(false);
 
   // MediaPipe face detection state
   const [faceDetector, setFaceDetector] = useState<FaceDetector | null>(null);
   const [detectorLoading, setDetectorLoading] = useState(true);
   const [detectorError, setDetectorError] = useState<string | null>(null);
-  const [faceStability, setFaceStability] = useState<FaceStability>({
+  const faceStabilityRef = useRef<FaceStability>({
     detectionCount: 0,
     lastPosition: null,
     isStable: false,
   });
   const detectionIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const detectionInFlightRef = useRef(false);
 
   const startCamera = useCallback(async () => {
     try {
@@ -77,6 +79,7 @@ export function CameraView({ onCapture, isPaused = false }: CameraViewProps) {
   }, []);
 
   useEffect(() => {
+    const videoElement = videoRef.current;
     startCamera();
 
     return () => {
@@ -90,9 +93,9 @@ export function CameraView({ onCapture, isPaused = false }: CameraViewProps) {
         streamRef.current = null;
       }
       // Stop video element
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
-        videoRef.current.pause();
+      if (videoElement) {
+        videoElement.srcObject = null;
+        videoElement.pause();
       }
       // Clear intervals
       if (countdownIntervalRef.current) {
@@ -151,24 +154,31 @@ export function CameraView({ onCapture, isPaused = false }: CameraViewProps) {
     initDetector();
   }, []);
 
-  const captureImageAsBase64 = useCallback((): string | null => {
+  const captureImageAsFile = useCallback(async (): Promise<File | null> => {
     if (!videoRef.current) return null;
 
     try {
       const canvas = document.createElement('canvas');
       const video = videoRef.current;
-      
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+
+      if (!video.videoWidth || !video.videoHeight) return null;
+
+      const scale = Math.min(1, CAPTURE_MAX_WIDTH / video.videoWidth);
+      canvas.width = Math.round(video.videoWidth * scale);
+      canvas.height = Math.round(video.videoHeight * scale);
       
       const ctx = canvas.getContext('2d');
       if (!ctx) return null;
       
       // Draw without mirroring to match enrollment photos
-      ctx.drawImage(video, 0, 0);
-      
-      const base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
-      return base64;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob(resolve, 'image/jpeg', CAPTURE_JPEG_QUALITY);
+      });
+
+      if (!blob) return null;
+      return new File([blob], 'attendance-face.jpg', { type: 'image/jpeg' });
     } catch (error) {
       console.error('Failed to capture image:', error);
       return null;
@@ -176,19 +186,20 @@ export function CameraView({ onCapture, isPaused = false }: CameraViewProps) {
   }, []);
 
   const triggerAutoCapture = useCallback(async () => {
-    if (scanning) return;
+    if (scanning || captureInFlightRef.current) return;
     
+    captureInFlightRef.current = true;
     setScanning(true);
     setCountdown(null);
 
     try {
-      const imageBase64 = captureImageAsBase64();
+      const imageFile = await captureImageAsFile();
       
-      if (!imageBase64) {
+      if (!imageFile) {
         throw new Error('Gagal menangkap gambar');
       }
 
-      const result = await api.attendance.recognize(undefined, imageBase64);
+      const result = await api.attendance.recognize(imageFile);
 
       // Convert backend response to frontend Employee format
       const recognizedEmployee: Employee = {
@@ -214,9 +225,10 @@ export function CameraView({ onCapture, isPaused = false }: CameraViewProps) {
       });
     } finally {
       setScanning(false);
+      captureInFlightRef.current = false;
       faceDetectedTimeRef.current = null;
     }
-  }, [scanning, onCapture, captureImageAsBase64]);
+  }, [scanning, onCapture, captureImageAsFile]);
 
   // Reset state when paused
   useEffect(() => {
@@ -224,6 +236,11 @@ export function CameraView({ onCapture, isPaused = false }: CameraViewProps) {
       setFaceDetected(false);
       setCountdown(null);
       faceDetectedTimeRef.current = null;
+      faceStabilityRef.current = {
+        detectionCount: 0,
+        lastPosition: null,
+        isStable: false,
+      };
       if (countdownIntervalRef.current) {
         clearInterval(countdownIntervalRef.current);
       }
@@ -235,8 +252,10 @@ export function CameraView({ onCapture, isPaused = false }: CameraViewProps) {
     if (!cameraReady || scanning || isPaused || !faceDetector || detectorLoading) return;
 
     const runDetection = async () => {
+      if (detectionInFlightRef.current) return;
       if (!videoRef.current || !canvasRef.current) return;
 
+      detectionInFlightRef.current = true;
       try {
         // Detect faces using MediaPipe
         const detections = await detectFaces(videoRef.current, performance.now());
@@ -249,10 +268,10 @@ export function CameraView({ onCapture, isPaused = false }: CameraViewProps) {
           // Update face stability tracker
           const newStability = updateStabilityTracker(
             detections[0],
-            faceStability,
+            faceStabilityRef.current,
             videoRef.current
           );
-          setFaceStability(newStability);
+          faceStabilityRef.current = newStability;
 
           // Draw face overlay on canvas
           const ctx = canvasRef.current.getContext('2d');
@@ -306,11 +325,11 @@ export function CameraView({ onCapture, isPaused = false }: CameraViewProps) {
         } else {
           // No face detected - reset everything
           setFaceDetected(false);
-          setFaceStability({
+          faceStabilityRef.current = {
             detectionCount: 0,
             lastPosition: null,
             isStable: false,
-          });
+          };
           faceDetectedTimeRef.current = null;
           setCountdown(null);
           if (countdownIntervalRef.current) {
@@ -325,6 +344,8 @@ export function CameraView({ onCapture, isPaused = false }: CameraViewProps) {
         }
       } catch (error) {
         console.error('Face detection error:', error);
+      } finally {
+        detectionInFlightRef.current = false;
       }
     };
 
@@ -340,7 +361,7 @@ export function CameraView({ onCapture, isPaused = false }: CameraViewProps) {
         clearInterval(countdownIntervalRef.current);
       }
     };
-  }, [cameraReady, scanning, isPaused, faceDetector, detectorLoading, faceStability, triggerAutoCapture]);
+  }, [cameraReady, scanning, isPaused, faceDetector, detectorLoading, triggerAutoCapture]);
 
   const progressPercentage = countdown !== null 
     ? ((Math.ceil(AUTO_CAPTURE_DELAY / 1000) - countdown) / Math.ceil(AUTO_CAPTURE_DELAY / 1000)) * 100 
